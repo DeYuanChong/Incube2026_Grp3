@@ -1,0 +1,56 @@
+services:
+  gateway:
+    build: services/gateway
+    ports: ["8000:8000"]
+    environment:
+      REPORTING_URL: http://reporting:8001
+      TRIAGE_URL: http://triage:8002
+      FIXVERIFY_URL: http://fixverify:8003
+      NOTIFICATION_URL: http://notification:8004
+    depends_on: [reporting, triage, fixverify, notification]
+
+  reporting:
+    build: services/reporting
+    ports: ["8001:8001"]
+    env_file: .env
+    environment:
+      GATEWAY_URL: http://gateway:8000
+    volumes: ["reporting-data:/app/data"]
+
+  triage:
+    build: services/triage
+    ports: ["8002:8002"]
+    env_file: .env
+    environment:
+      GATEWAY_URL: http://gateway:8000
+      REPORTING_URL: http://reporting:8001
+    volumes: ["triage-data:/app/data"]
+
+  fixverify:
+    build: services/fixverify
+    ports: ["8003:8003"]
+    env_file: .env
+    environment:
+      GATEWAY_URL: http://gateway:8000
+      REPORTING_URL: http://reporting:8001
+    volumes: ["fixverify-data:/app/data"]
+
+  notification:
+    build: services/notification
+    ports: ["8004:8004"]
+    environment:
+      GATEWAY_URL: http://gateway:8000
+    volumes: ["notification-data:/app/data"]
+
+  frontend:
+    build: frontend
+    ports: ["5173:5173"]
+    environment:
+      VITE_GATEWAY_URL: http://localhost:8000
+    depends_on: [gateway]
+
+volumes:
+  reporting-data:
+  triage-data:
+  fixverify-data:
+  notification-data:

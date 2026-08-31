@@ -1,0 +1,151 @@
+import logging
+
+import httpx
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from sqlmodel import Session, select
+
+from . import analytics, config, pipeline
+from .db import engine, get_session, init_db
+from .models import SystemicCluster, TriageResult
+
+log = logging.getLogger(__name__)
+app = FastAPI(title="Triage Service", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
+)
+
+
+@app.on_event("startup")
+def startup() -> None:
+    init_db()
+
+
+@app.get("/health")
+def health():
+    return {"service": "triage", "status": "ok"}
+
+
+@app.post("/triage/run/{issue_id}")
+def run_triage(issue_id: str, session: Session = Depends(get_session)):
+    try:
+        return pipeline.run_triage(session, issue_id)
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"could not fetch issue from reporting: {exc}")
+
+
+@app.get("/triage/results/{issue_id}")
+def get_result(issue_id: str, session: Session = Depends(get_session)):
+    result = session.exec(
+        select(TriageResult)
+        .where(TriageResult.issue_id == issue_id)
+        .order_by(TriageResult.created_at.desc())  # type: ignore[attr-defined]
+    ).first()
+    if not result:
+        raise HTTPException(404, "no triage result for this issue")
+    return result
+
+
+class ConfirmRequest(BaseModel):
+    severity: str | None = None
+    urgency: str | None = None
+
+
+@app.post("/triage/results/{issue_id}/confirm")
+def confirm_result(
+    issue_id: str,
+    body: ConfirmRequest,
+    session: Session = Depends(get_session),
+    x_user: str = Header("admin"),
+):
+    result = session.exec(
+        select(TriageResult)
+        .where(TriageResult.issue_id == issue_id)
+        .order_by(TriageResult.created_at.desc())  # type: ignore[attr-defined]
+    ).first()
+    if not result:
+        raise HTTPException(404, "no triage result for this issue")
+    result.admin_confirmed = True
+    result.admin_override_severity = body.severity
+    result.admin_override_urgency = body.urgency
+    session.add(result)
+    session.commit()
+
+    severity = body.severity or result.suggested_severity
+    urgency = body.urgency or result.suggested_urgency
+    try:
+        httpx.post(
+            f"{config.REPORTING_URL}/issues/{issue_id}/triage-result",
+            json={"severity": severity, "urgency": urgency,
+                  "equipment_name": result.equipment_extracted},
+            timeout=10,
+        ).raise_for_status()
+    except httpx.HTTPError:
+        raise HTTPException(502, "confirmed locally but failed to update reporting")
+    session.refresh(result)
+    return result
+
+
+@app.get("/analytics/systemic")
+def systemic(session: Session = Depends(get_session)):
+    return session.exec(
+        select(SystemicCluster).order_by(SystemicCluster.issue_count.desc())  # type: ignore[attr-defined]
+    ).all()
+
+
+@app.get("/analytics/metrics")
+def metrics(
+    session: Session = Depends(get_session),
+    group_by: str = Query("category", pattern="^(category|building|floor|equipment)$"),
+):
+    return {
+        "group_by": group_by,
+        "mtbf": analytics.mtbf(session, group_by),
+        "mttr": analytics.mttr(session, group_by),
+    }
+
+
+@app.get("/analytics/profiles")
+def get_profiles(
+    session: Session = Depends(get_session),
+    by: str = Query("location", pattern="^(location|category)$"),
+):
+    return analytics.profiles(session, by)
+
+
+@app.post("/analytics/sync")
+def sync_snapshot(session: Session = Depends(get_session)):
+    """Full refresh of the issue_facts snapshot from reporting."""
+    resp = httpx.get(f"{config.REPORTING_URL}/issues", params={"limit": 500}, timeout=30)
+    resp.raise_for_status()
+    issues = resp.json()
+    for issue in issues:
+        pipeline.sync_issue_fact(session, issue)
+    session.commit()
+    return {"synced": len(issues)}
+
+
+def _handle_event(event: dict) -> None:
+    """Background webhook handling with its own DB session."""
+    from sqlmodel import Session as _Session
+
+    event_type = event.get("event_type")
+    issue_id = (event.get("payload") or {}).get("issue_id")
+    with _Session(engine) as session:
+        try:
+            if event_type == "issue.created" and issue_id:
+                pipeline.run_triage(session, issue_id)
+            elif event_type == "issue.closed" and issue_id:
+                resp = httpx.get(f"{config.REPORTING_URL}/issues/{issue_id}", timeout=10)
+                resp.raise_for_status()
+                pipeline.sync_issue_fact(session, resp.json()["issue"])
+                session.commit()
+        except Exception:
+            log.warning("event handling failed for %s", event_type, exc_info=True)
+
+
+@app.post("/webhooks/events")
+def webhook(event: dict, background: BackgroundTasks):
+    background.add_task(_handle_event, event)
+    return {"accepted": True}

@@ -1,0 +1,57 @@
+:root {
+  font-family: system-ui, -apple-system, sans-serif;
+  color: #1a1a2e;
+  background: #f5f6fa;
+}
+body { margin: 0; }
+* { box-sizing: border-box; }
+
+.app { max-width: 1100px; margin: 0 auto; padding: 0 1rem 3rem; }
+nav {
+  display: flex; align-items: center; gap: 1rem; padding: 0.75rem 0;
+  border-bottom: 1px solid #ddd; margin-bottom: 1.5rem; flex-wrap: wrap;
+}
+nav a { text-decoration: none; color: #333; padding: 0.3rem 0.6rem; border-radius: 6px; }
+nav a.active, nav a:hover { background: #e4e8f7; color: #2244aa; }
+nav .spacer { flex: 1; }
+.brand { font-weight: 700; font-size: 1.1rem; }
+
+.card {
+  background: #fff; border: 1px solid #e2e4ee; border-radius: 10px;
+  padding: 1rem 1.25rem; margin-bottom: 1rem;
+}
+button {
+  background: #2244aa; color: #fff; border: 0; border-radius: 6px;
+  padding: 0.45rem 0.9rem; cursor: pointer; font-size: 0.9rem;
+}
+button.secondary { background: #eef0f8; color: #2244aa; }
+button:disabled { opacity: 0.5; cursor: default; }
+input, select, textarea {
+  width: 100%; padding: 0.45rem 0.6rem; border: 1px solid #ccd; border-radius: 6px;
+  font: inherit; margin: 0.2rem 0 0.8rem;
+}
+label { font-size: 0.85rem; font-weight: 600; color: #445; }
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #eee; }
+
+.badge {
+  display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px;
+  font-size: 0.75rem; font-weight: 600; background: #e4e8f7; color: #2244aa;
+}
+.badge.reported { background: #fff3cd; color: #7a5b00; }
+.badge.triaged { background: #d7e8ff; color: #1a4d8f; }
+.badge.in_progress { background: #e2d9f7; color: #4b2e8f; }
+.badge.pending_verification { background: #ffe3c8; color: #8a4b00; }
+.badge.verified { background: #d4f5dd; color: #1a6b34; }
+.badge.closed { background: #e6e6e6; color: #555; }
+.badge.cancelled { background: #fbd6d6; color: #8f1a1a; }
+.badge.critical, .badge.emergency { background: #fbd6d6; color: #8f1a1a; }
+.badge.high, .badge.urgent { background: #ffe3c8; color: #8a4b00; }
+
+.hint { font-size: 0.85rem; color: #667; }
+.error { color: #a11; font-size: 0.9rem; }
+.suggestion {
+  background: #fffbe8; border: 1px solid #eedd88; border-radius: 8px;
+  padding: 0.6rem 0.9rem; margin: 0.5rem 0;
+}
+.notif-unread { border-left: 4px solid #2244aa; }
