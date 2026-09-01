@@ -4,11 +4,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SERVICE_NAME = "triage"
 DATABASE_URL = os.getenv(
     "DATABASE_URL", "postgresql+psycopg://app:app@localhost:5432/defects"
 )
-GATEWAY_URL = os.getenv("GATEWAY_URL", "http://localhost:8000")
+# No GATEWAY_URL: triage consumes events (issue.created / issue.closed) and
+# publishes none — escalation is not this service's job (docs/05).
 REPORTING_URL = os.getenv("REPORTING_URL", "http://localhost:8001")
 
 VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8080/v1")

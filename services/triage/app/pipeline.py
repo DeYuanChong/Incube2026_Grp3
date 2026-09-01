@@ -91,7 +91,9 @@ def _systemic_check(session: Session, fact: IssueFact) -> SystemicCluster | None
         return None
     cluster = session.exec(
         select(SystemicCluster).where(SystemicCluster.cluster_key == key)
-    ).first() or SystemicCluster(cluster_key=key, first_seen=members[0].created_at)
+    ).first() or SystemicCluster(
+        cluster_key=key, first_seen=min(m.created_at for m in members)
+    )
     cluster.issue_count = len(members)
     cluster.last_seen = max(m.created_at for m in members)
     if not cluster.recommendation:

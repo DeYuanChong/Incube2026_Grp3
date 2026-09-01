@@ -37,9 +37,9 @@ def mtbf(session: Session, group_by: str = "category") -> list[dict]:
     """Mean time between failures (days) per group; needs ≥ 2 issues."""
     out = []
     for key, facts in _grouped(session, group_by).items():
-        if len(facts) < 2:
-            continue
         times = sorted(_parse(f.created_at) for f in facts if f.created_at)
+        if len(times) < 2:  # a gap needs two timestamps, not two rows
+            continue
         gaps = [(b - a).total_seconds() for a, b in zip(times, times[1:])]
         out.append({
             "group": key,
