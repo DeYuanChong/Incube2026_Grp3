@@ -22,6 +22,7 @@ _client = OpenAI(
     base_url=config.VLLM_BASE_URL,
     api_key=config.VLLM_API_KEY,
     timeout=config.AI_TIMEOUT_SECONDS,
+    max_retries=1,  # fail over to the graceful fallback sooner when the endpoint is down
 )
 
 
@@ -53,6 +54,7 @@ def recommend_evidence(category: str, title: str, description: str) -> dict:
                          "why": "Generic fallback (AI unavailable)"}],
         "requires_human_verification": True,
         "rationale": "AI unavailable; defaulting to human verification.",
+        "fallback": True,  # signals the caller not to cache this
     }
 
 

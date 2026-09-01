@@ -15,6 +15,7 @@ _client = OpenAI(
     base_url=config.VLLM_BASE_URL,
     api_key=config.VLLM_API_KEY,
     timeout=config.AI_TIMEOUT_SECONDS,
+    max_retries=1,  # fail over to the graceful fallback sooner when the endpoint is down
 )
 
 

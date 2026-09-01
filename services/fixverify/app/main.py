@@ -113,9 +113,12 @@ def evidence_recommendation(wo_id: str, session: Session = Depends(get_session))
     resp.raise_for_status()
     issue = resp.json()["issue"]
     rec = ai_client.recommend_evidence(issue["category"], issue["title"], issue["description"])
-    wo.evidence_recommendation = json.dumps(rec)
-    wo.requires_human_verification = bool(rec.get("requires_human_verification", False))
-    session.commit()
+    if not rec.pop("fallback", False):
+        # Only cache real AI output — a fallback would otherwise be served
+        # forever even after the AI endpoint comes back up
+        wo.evidence_recommendation = json.dumps(rec)
+        wo.requires_human_verification = bool(rec.get("requires_human_verification", False))
+        session.commit()
     return rec
 
 
