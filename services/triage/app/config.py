@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 SERVICE_NAME = "triage"
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data/triage.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data/unified.db")
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://localhost:8000")
 REPORTING_URL = os.getenv("REPORTING_URL", "http://localhost:8001")
 

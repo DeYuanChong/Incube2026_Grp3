@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 SERVICE_NAME = "reporting"
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data/reporting.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data/unified.db")
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://localhost:8000")
 
 VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8080/v1")

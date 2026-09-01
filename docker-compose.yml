@@ -15,7 +15,7 @@ services:
     env_file: .env
     environment:
       GATEWAY_URL: http://gateway:8000
-    volumes: ["reporting-data:/app/data"]
+    volumes: ["app-data:/app/data"]
 
   triage:
     build: services/triage
@@ -24,7 +24,7 @@ services:
     environment:
       GATEWAY_URL: http://gateway:8000
       REPORTING_URL: http://reporting:8001
-    volumes: ["triage-data:/app/data"]
+    volumes: ["app-data:/app/data"]
 
   fixverify:
     build: services/fixverify
@@ -33,14 +33,14 @@ services:
     environment:
       GATEWAY_URL: http://gateway:8000
       REPORTING_URL: http://reporting:8001
-    volumes: ["fixverify-data:/app/data"]
+    volumes: ["app-data:/app/data"]
 
   notification:
     build: services/notification
     ports: ["8004:8004"]
     environment:
       GATEWAY_URL: http://gateway:8000
-    volumes: ["notification-data:/app/data"]
+    volumes: ["app-data:/app/data"]
 
   frontend:
     build: frontend
@@ -49,8 +49,6 @@ services:
       VITE_GATEWAY_URL: http://localhost:8000
     depends_on: [gateway]
 
+# One shared volume: all services open the same data/unified.db (WAL mode)
 volumes:
-  reporting-data:
-  triage-data:
-  fixverify-data:
-  notification-data:
+  app-data:

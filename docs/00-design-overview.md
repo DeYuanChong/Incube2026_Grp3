@@ -21,7 +21,7 @@ gives facilities managers macro-level insight, not just a ticket queue.
 |---|---|---|
 | AI backend | Self-hosted **OpenAI-compatible vLLM endpoint** (text model + vision model) | Stakeholder hosts it; services use the `openai` client with a configurable base URL. |
 | Service split | **One service per stage** (~5 services) + gateway + frontend | Clear mapping to the four stages; teachable microservice boundaries. |
-| Database | **SQLite, one file per service** | Proof of concept; each service still owns its data exclusively (no shared DB files). |
+| Database | **One unified SQLite file, schema-per-service via table-name prefixes** (`reporting_*`, `triage_*`, `fixverify_*`, `notification_*`) | Proof of concept. Each service WRITES only its own prefix; triage is additionally granted READ access to `fixverify_*` tables because triage needs fix-and-verify data (repair times, proof rejections) for triaging. WAL mode handles concurrent writers. |
 | Auth | **Demo mode** — role picker (Reporter / Maintenance / Admin), no login | PoC scope. Role sent as `X-Role` / `X-User` headers. |
 | Inter-service comms | **Sync REST** for queries/commands + **webhook events** fanned out by the gateway | No broker infra; still demonstrates event-driven flows. |
 | Notifications | **In-app only** (notification service + bell/inbox in frontend) | No email infra needed. |
@@ -75,8 +75,13 @@ Boundaries of what each service owns (and explicitly does *not*):
 | **Notification** | The notification inbox and the event→notification rules. | Any issue/work-order state; it is a pure consumer of events. |
 | **Gateway** | Routing and event fan-out (`subscriptions.py`). | No domain data at all — stateless. |
 
-Cross-cutting rule: services communicate only via REST APIs and gateway events;
-no service ever opens another service's SQLite file.
+Cross-cutting rule: all services share one unified SQLite database, with
+"schemas" expressed as table-name prefixes (`reporting_*`, `triage_*`,
+`fixverify_*`, `notification_*`). Each service **writes** only tables under its
+own prefix; commands and state changes still travel via REST APIs and gateway
+events. The one sanctioned cross-schema access: **triage may read `fixverify_*`
+tables** (read-only) to fold repair-time and proof-quality data into triage
+analytics (`GET /analytics/vendor-performance`).
 
 ## Non-goals (for this PoC)
 

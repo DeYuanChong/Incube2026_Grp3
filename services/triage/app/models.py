@@ -34,7 +34,7 @@ class TriageResult(SQLModel, table=True):
 class IssueFact(SQLModel, table=True):
     """Denormalized analytics snapshot of an issue, synced from reporting."""
 
-    __tablename__ = "issue_facts"
+    __tablename__ = "triage_issue_facts"
 
     issue_id: str = Field(primary_key=True)
     reference_no: str = ""
@@ -53,7 +53,7 @@ class IssueFact(SQLModel, table=True):
 
 
 class SystemicCluster(SQLModel, table=True):
-    __tablename__ = "systemic_clusters"
+    __tablename__ = "triage_systemic_clusters"
 
     id: str = Field(default_factory=new_id, primary_key=True)
     cluster_key: str = Field(index=True, unique=True)  # e.g. "lighting|BlockA|L3"

@@ -4,8 +4,10 @@ A web-based defect reporting application covering the full defect lifecycle:
 
 **User Reporting → Triage → Fix & Verify → Close Loop**
 
-Built as microservices: Python FastAPI backends + React frontend, SQLite per service,
-AI features powered by a self-hosted OpenAI-compatible vLLM endpoint.
+Built as microservices: Python FastAPI backends + React frontend, one unified
+SQLite database with schema-per-service table prefixes (`reporting_*`,
+`triage_*`, `fixverify_*`, `notification_inbox`), AI features powered by a
+self-hosted OpenAI-compatible vLLM endpoint.
 
 ## Architecture at a glance
 

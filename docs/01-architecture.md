@@ -21,10 +21,10 @@ flowchart LR
     TRG --> VLLM
     FIX --> VLLM
 
-    RPT --- DB1[(reporting.db)]
-    TRG --- DB2[(triage.db)]
-    FIX --- DB3[(fixverify.db)]
-    NTF --- DB4[(notification.db)]
+    RPT -- "reporting_*" --- DB[(unified.db)]
+    TRG -- "triage_* (+ reads fixverify_*)" --- DB
+    FIX -- "fixverify_*" --- DB
+    NTF -- "notification_inbox" --- DB
 ```
 
 ## Services
@@ -83,7 +83,10 @@ flowchart LR
    must be idempotent (events carry an `event_id`).
 3. **Only reporting writes issue state.** Other services request changes through
    reporting's API so the state machine is enforced in one place.
-4. Every service exposes `/health` and `/docs` (OpenAPI).
+4. **One unified SQLite DB, prefix-per-service "schemas".** Each service writes
+   only its own `servicename_*` tables. Triage additionally holds read-only
+   access to `fixverify_*` tables for triage analytics (docs/02, docs/05).
+5. Every service exposes `/health` and `/docs` (OpenAPI).
 
 ## Event catalog
 

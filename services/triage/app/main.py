@@ -106,6 +106,12 @@ def metrics(
     }
 
 
+@app.get("/analytics/vendor-performance")
+def vendor_performance(session: Session = Depends(get_session)):
+    """Read-only view over fixverify's tables in the unified DB (MTTR + quality)."""
+    return analytics.vendor_performance(session)
+
+
 @app.get("/analytics/profiles")
 def get_profiles(
     session: Session = Depends(get_session),

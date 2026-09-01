@@ -32,6 +32,7 @@ service-local. Gateway mapping: `/api/reporting/*→:8001/*`, `/api/triage/*→:
 | `GET /analytics/systemic` | Clusters of repeated issues (same category+location, min count ≥ threshold) with LLM maintenance recommendations. |
 | `GET /analytics/metrics` | `{mtbf: [...], mttr: [...]}` grouped by `group_by=category\|building\|floor\|equipment`. |
 | `GET /analytics/profiles` | Location profile & issue profile summaries (counts, trends). |
+| `GET /analytics/vendor-performance` | Per-assignee speed & quality: avg repair hours, proof rejection rate, resolved-on-arrival counts. Reads `fixverify_*` tables directly (the sanctioned read-only cross-schema access in the unified DB). |
 | `POST /analytics/sync` | Refresh `issue_facts` snapshot from reporting. |
 | `POST /webhooks/events` | Gateway fan-out receiver (`issue.created`, `issue.closed`). |
 

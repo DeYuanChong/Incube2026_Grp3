@@ -13,7 +13,7 @@ def new_id() -> str:
 
 
 class WorkOrder(SQLModel, table=True):
-    __tablename__ = "work_orders"
+    __tablename__ = "fixverify_work_orders"
 
     id: str = Field(default_factory=new_id, primary_key=True)
     issue_id: str = Field(index=True, unique=True)
@@ -33,10 +33,10 @@ class WorkOrder(SQLModel, table=True):
 
 
 class Proof(SQLModel, table=True):
-    __tablename__ = "proofs"
+    __tablename__ = "fixverify_proofs"
 
     id: str = Field(default_factory=new_id, primary_key=True)
-    work_order_id: str = Field(index=True, foreign_key="work_orders.id")
+    work_order_id: str = Field(index=True, foreign_key="fixverify_work_orders.id")
     file_path: str
     media_type: str = "image"  # image | audio | other
     uploaded_by: str = "unknown"

@@ -56,8 +56,13 @@ Also exposed: `MTTC` (mean time to close, `closed_at - created_at`) and the
 verification overhead (`closed_at - fixed_at`).
 
 ### Quality signals (vendor performance beyond speed)
+Served by `GET /analytics/vendor-performance`, which reads `fixverify_*` tables
+directly — the sanctioned read-only cross-schema access in the unified DB:
 - **Proof rejection rate**: rejected proofs / total proofs per assignee — AI
   relevance rejections plus human rejections.
+- **Avg repair hours**: work order `started_at → completed_at` per assignee.
+- **Resolved-on-arrival count**: dispatches where no work was needed (a signal
+  for reporter education / self-service opportunities).
 - **Reopen rate**: issues that went `verified → in_progress` (reporter dispute).
 
 ## Duplicate handling & escalation

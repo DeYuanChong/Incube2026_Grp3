@@ -1,8 +1,14 @@
-"""MTBF / MTTR / profiles over the issue_facts snapshot (docs/05-triage-analytics.md)."""
+"""MTBF / MTTR / profiles over the triage_issue_facts snapshot, plus read-only
+queries over fixverify's tables in the unified DB (docs/05-triage-analytics.md).
+
+Cross-schema rule: triage may READ fixverify_* tables (raw SQL below) but never
+writes to them — fixverify remains their single writer.
+"""
 
 from collections import defaultdict
 from datetime import datetime
 
+from sqlalchemy import text
 from sqlmodel import Session, select
 
 from .models import IssueFact
@@ -64,6 +70,50 @@ def mttr(session: Session, group_by: str = "category") -> list[dict]:
             "mttc_days": round(sum(closes) / len(closes) / 86400, 2) if closes else None,
         })
     return sorted(out, key=lambda r: r["mttr_days"] or 0, reverse=True)
+
+
+def vendor_performance(session: Session) -> list[dict]:
+    """Per-assignee performance from fixverify's tables (read-only).
+
+    Speed: mean repair hours (work order started → completed).
+    Quality: proof rejection rate (AI 'irrelevant' or human 'rejected'),
+    and resolved-on-arrival counts (no work was actually needed).
+    """
+    try:
+        rows = session.exec(text("""
+            SELECT
+                wo.assignee                                        AS assignee,
+                COUNT(DISTINCT wo.id)                              AS work_orders,
+                COUNT(DISTINCT CASE WHEN wo.status = 'verified' THEN wo.id END) AS verified,
+                COUNT(DISTINCT CASE WHEN wo.resolved_on_arrival THEN wo.id END) AS resolved_on_arrival,
+                AVG(CASE
+                    WHEN wo.started_at IS NOT NULL AND wo.completed_at IS NOT NULL
+                    THEN (julianday(wo.completed_at) - julianday(wo.started_at)) * 24
+                END)                                               AS avg_repair_hours,
+                COUNT(p.id)                                        AS proofs,
+                SUM(CASE WHEN p.ai_verdict = 'irrelevant'
+                          OR p.human_verdict = 'rejected' THEN 1 ELSE 0 END) AS proofs_rejected
+            FROM fixverify_work_orders wo
+            LEFT JOIN fixverify_proofs p ON p.work_order_id = wo.id
+            WHERE wo.assignee IS NOT NULL
+            GROUP BY wo.assignee
+        """)).all()
+    except Exception:
+        return []  # fixverify tables not created yet (fresh DB)
+    out = []
+    for r in rows:
+        m = r._mapping
+        proofs = m["proofs"] or 0
+        out.append({
+            "assignee": m["assignee"],
+            "work_orders": m["work_orders"],
+            "verified": m["verified"],
+            "resolved_on_arrival": m["resolved_on_arrival"],
+            "avg_repair_hours": round(m["avg_repair_hours"], 1) if m["avg_repair_hours"] else None,
+            "proofs": proofs,
+            "proof_rejection_rate": round((m["proofs_rejected"] or 0) / proofs, 2) if proofs else None,
+        })
+    return sorted(out, key=lambda r: r["work_orders"], reverse=True)
 
 
 def profiles(session: Session, by: str = "location") -> list[dict]:

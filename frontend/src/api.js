@@ -53,6 +53,7 @@ export const api = {
   systemic: () => request('/api/triage/analytics/systemic'),
   metrics: (groupBy = 'category') => request(`/api/triage/analytics/metrics?group_by=${groupBy}`),
   profiles: (by = 'location') => request(`/api/triage/analytics/profiles?by=${by}`),
+  vendorPerformance: () => request('/api/triage/analytics/vendor-performance'),
 
   // fix & verify
   listWorkOrders: (params = {}) =>

@@ -47,7 +47,7 @@ TRANSITIONS: dict[Status, set[Status]] = {
 
 
 class Issue(SQLModel, table=True):
-    __tablename__ = "issues"
+    __tablename__ = "reporting_issues"
 
     id: str = Field(default_factory=new_id, primary_key=True)
     reference_no: str = Field(index=True, unique=True)
@@ -84,10 +84,10 @@ class Issue(SQLModel, table=True):
 
 
 class IssueEvent(SQLModel, table=True):
-    __tablename__ = "issue_events"
+    __tablename__ = "reporting_issue_events"
 
     id: str = Field(default_factory=new_id, primary_key=True)
-    issue_id: str = Field(index=True, foreign_key="issues.id")
+    issue_id: str = Field(index=True, foreign_key="reporting_issues.id")
     event_type: str
     detail: str = "{}"  # JSON blob
     actor: str = "system"
