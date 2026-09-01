@@ -47,7 +47,6 @@ def suggest_severity(
             "urgency": data.get("urgency", "routine"),
             "rationale": str(data.get("rationale", "")),
             "equipment_name": data.get("equipment_name") or None,
-            "is_critical_system": bool(data.get("is_critical_system", False)),
         }
     # Fallback: rule-based default when the model is unavailable
     return {
@@ -55,7 +54,6 @@ def suggest_severity(
         "urgency": "routine",
         "rationale": "Default (AI unavailable); admin review recommended.",
         "equipment_name": None,
-        "is_critical_system": False,
     }
 
 

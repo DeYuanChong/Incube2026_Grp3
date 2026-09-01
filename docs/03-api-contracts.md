@@ -29,7 +29,7 @@ service-local. Gateway mapping: `/api/reporting/*→:8001/*`, `/api/triage/*→:
 | `POST /triage/run/{issue_id}` | Run/re-run the triage pipeline for one issue (also invoked by the `issue.created` webhook). Returns the `triage_result`. |
 | `GET /triage/results/{issue_id}` | Latest triage result. |
 | `POST /triage/results/{issue_id}/confirm` | Admin confirms or overrides `{severity?, urgency?}` → PATCHes reporting. |
-| `GET /analytics/systemic` | Clusters of repeated issues (same category+location, min count ≥ threshold) with LLM maintenance recommendations. |
+| `GET /analytics/systemic` | Clusters of repeated issues (same category+location, min count ≥ threshold) with LLM maintenance recommendations. This is what the `issue.escalated` admin notification points at — there is no separate escalations queue. |
 | `GET /analytics/metrics` | `{mtbf: [...], mttr: [...]}` grouped by `group_by=category\|building\|floor\|equipment`. |
 | `GET /analytics/profiles` | Location profile & issue profile summaries (counts, trends). |
 | `GET /analytics/vendor-performance` | Per-assignee speed & quality: avg repair hours, proof rejection rate, resolved-on-arrival counts. Reads the `fixverify` schema directly (the sanctioned read-only cross-schema access in the shared PostgreSQL DB). |
@@ -47,7 +47,7 @@ service-local. Gateway mapping: `/api/reporting/*→:8001/*`, `/api/triage/*→:
 | `POST /work-orders/{id}/proofs` | Multipart: `file`, `note?`. Runs vision relevance check against issue description. `relevant` → issue `pending_verification`, emits `proof.uploaded`; `irrelevant` → HTTP 422 with `{ai_verdict, ai_reason}`, emits `proof.rejected` (uploader must re-upload). `inconclusive`/non-visual → stored, flagged for human review. Also accepted on an **`open`** work order: this means the defect was already resolved on arrival (or self-serviced) — the work order is marked `resolved_on_arrival` and the issue jumps `triaged → pending_verification`, skipping `in_progress`. |
 | `GET /proofs/{id}/file` | Serve the uploaded file. |
 | `POST /proofs/{id}/human-verify` | Admin: `{approved: bool, notes?}`. Approved → issue `verified`, emits `issue.verified`; rejected → work order back to `awaiting_proof`, issue `in_progress`. |
-| `POST /webhooks/events` | Receiver (`issue.triaged` → auto-create work order). |
+| `POST /webhooks/events` | Receiver (`issue.triaged` → auto-create work order). Skipped when the issue is a duplicate whose group primary already has a live work order — one defect, one dispatch (doc 05). |
 
 ## Notification service (:8004)
 

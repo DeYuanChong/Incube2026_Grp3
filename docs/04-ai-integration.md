@@ -122,6 +122,6 @@ user uploads is still processed.
 | `reporting/app/prompts.py::CATEGORIZE` | reporting | category suggestion |
 | `triage/app/prompts.py::SEVERITY` | triage | severity/urgency + equipment |
 | `triage/app/prompts.py::DUPLICATE` | triage | pairwise duplicate check |
-| `triage/app/prompts.py::SYSTEMIC` | triage | cluster maintenance recommendation |
+| `triage/app/prompts.py::SYSTEMIC` | triage | cluster maintenance recommendation (also the body of the admin escalation notification, doc 05) |
 | `fixverify/app/prompts.py::EVIDENCE` | fixverify | evidence recommendation |
 | `fixverify/app/prompts.py::RELEVANCE` | fixverify | vision relevance check |
