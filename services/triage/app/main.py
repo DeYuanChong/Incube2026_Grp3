@@ -27,7 +27,7 @@ def health():
     return {"service": "triage", "status": "ok"}
 
 
-@app.post("/triage/run/{issue_id}")
+@app.post("/run/{issue_id}")
 def run_triage(issue_id: str, session: Session = Depends(get_session)):
     try:
         return pipeline.to_response(session, pipeline.run_triage(session, issue_id))
@@ -35,7 +35,7 @@ def run_triage(issue_id: str, session: Session = Depends(get_session)):
         raise HTTPException(502, f"could not fetch issue from reporting: {exc}")
 
 
-@app.get("/triage/results/{issue_id}")
+@app.get("/results/{issue_id}")
 def get_result(issue_id: str, session: Session = Depends(get_session)):
     result = session.exec(
         select(TriageResult)
@@ -52,7 +52,7 @@ class ConfirmRequest(BaseModel):
     urgency: str | None = None
 
 
-@app.post("/triage/results/{issue_id}/confirm")
+@app.post("/results/{issue_id}/confirm")
 def confirm_result(
     issue_id: str,
     body: ConfirmRequest,

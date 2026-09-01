@@ -30,9 +30,11 @@ Goal: surface deeper root problems that individual tickets hide.
 ## One issue in, one result out
 
 Triage answers exactly one question per call: *what happens to this issue.*
-`POST /triage/run/{issue_id}`, `GET /triage/results/{issue_id}` and
-`POST /triage/results/{issue_id}/confirm` all return the same single object —
-the stored `triage.results` row plus one extra key.
+`POST /run/{issue_id}`, `GET /results/{issue_id}` and
+`POST /results/{issue_id}/confirm` all return the same single object —
+the stored `triage.results` row plus one extra key. (Service-local paths; the
+gateway mounts them under `/api/triage/*`. The routes carry no `/triage` prefix
+of their own — that produced `/api/triage/triage/results/{id}` from outside.)
 
 | Part of the result | Scope | Read by |
 |---|---|---|
