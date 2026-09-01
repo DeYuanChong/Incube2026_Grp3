@@ -15,6 +15,7 @@ SUBSCRIPTIONS: dict[str, list[str]] = {
     "*": [f"{NOTIFICATION_URL}/webhooks/events"],
     "issue.created": [f"{TRIAGE_URL}/webhooks/events"],
     "issue.closed": [f"{TRIAGE_URL}/webhooks/events"],
+    "issue.status_changed": [f"{TRIAGE_URL}/webhooks/events"],
     "issue.triaged": [f"{FIXVERIFY_URL}/webhooks/events"],
 }
 

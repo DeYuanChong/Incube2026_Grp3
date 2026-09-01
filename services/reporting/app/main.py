@@ -303,6 +303,7 @@ def close_issue(
 def cancel_issue(
     issue_id: str,
     body: CancelRequest,
+    background: BackgroundTasks,
     session: Session = Depends(get_session),
     who: dict = Depends(caller),
 ):
@@ -316,6 +317,16 @@ def cancel_issue(
     issue.updated_at = now_iso()
     _log_event(session, issue_id, "cancelled", who["user"], {"reason": body.reason})
     session.commit()
+    session.refresh(issue)
+    # Cancelling is a status change like any other. It published nothing, so
+    # triage's snapshot kept the issue at "reported" forever and went on
+    # counting it as open work (docs/05 §Profiles).
+    background.add_task(
+        events.publish, "issue.status_changed",
+        {"issue_id": issue.id, "reference_no": issue.reference_no,
+         "status": issue.status.value, "reporter": issue.reporter_name,
+         "title": issue.title, "detail": body.reason},
+    )
     return issue
 
 

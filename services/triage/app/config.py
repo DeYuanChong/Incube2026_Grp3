@@ -19,6 +19,8 @@ AI_TIMEOUT_SECONDS = float(os.getenv("AI_TIMEOUT_SECONDS", "30"))
 SYSTEMIC_MIN_COUNT = int(os.getenv("SYSTEMIC_MIN_COUNT", "3"))
 SYSTEMIC_WINDOW_DAYS = int(os.getenv("SYSTEMIC_WINDOW_DAYS", "90"))
 DUPLICATE_WINDOW_DAYS = int(os.getenv("DUPLICATE_WINDOW_DAYS", "14"))
+# Below this the LLM's "same defect" verdict is not trusted enough to group on.
+DUPLICATE_MIN_CONFIDENCE = float(os.getenv("DUPLICATE_MIN_CONFIDENCE", "0.6"))
 
 # Hard rules applied after the LLM (rules win) — docs/04-ai-integration.md §3
 SEVERITY_ORDER = ["low", "medium", "high", "critical"]

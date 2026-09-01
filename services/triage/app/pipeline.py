@@ -14,14 +14,14 @@ import httpx
 from sqlalchemy import text
 from sqlmodel import Session, select
 
-from . import ai_client, config, payload
+from . import ai_client, config, grouping, payload
 from .models import IssueFact, SystemicCluster, TriageResult, now_iso
 
 log = logging.getLogger(__name__)
 
 
 def _cluster_key(fact: IssueFact) -> str:
-    return f"{fact.category}|{fact.building}|{fact.floor}"
+    return grouping.cluster_key(fact.category, fact.building, fact.floor)
 
 
 def sync_issue_fact(session: Session, issue: dict) -> IssueFact:
@@ -35,6 +35,7 @@ def sync_issue_fact(session: Session, issue: dict) -> IssueFact:
     fact.severity = issue.get("severity")
     fact.status = issue["status"]
     fact.description = issue.get("description", "")
+    fact.duplicate_group_id = issue.get("duplicate_group_id")
     fact.created_at = issue["created_at"]
     fact.fixed_at = issue.get("fixed_at")
     fact.closed_at = issue.get("closed_at")
@@ -45,8 +46,15 @@ def sync_issue_fact(session: Session, issue: dict) -> IssueFact:
 
 def _find_duplicate(session: Session, fact: IssueFact) -> tuple[str | None, float, int]:
     """Heuristic candidates (same category+building+floor, recent, open), ranked
-    by pg_trgm description similarity so the LLM only confirms the closest few.
-    Returns (duplicate_of_issue_id, confidence, group_size)."""
+    by pg_trgm description similarity so the LLM confirms the closest few first.
+    Returns (duplicate_of_issue_id, confidence, group_size).
+
+    Every candidate is confirmed rather than stopping at the first hit, because
+    the group size is what it costs: it feeds the severity bump and is posted to
+    reporting as `duplicate_count`, so it has to count duplicates and not the
+    pre-filter's pool. The no-duplicate path already scanned all five; only the
+    found-early case loses its short-circuit.
+    """
     cutoff = (
         datetime.now(timezone.utc) - timedelta(days=config.DUPLICATE_WINDOW_DAYS)
     ).isoformat()
@@ -63,15 +71,16 @@ def _find_duplicate(session: Session, fact: IssueFact) -> tuple[str | None, floa
         ).limit(5)
     ).all()
     location = f"{fact.building} / {fact.floor}"
-    group_size = 1
+    confirmed = []
     for candidate in candidates:
         verdict = ai_client.is_duplicate(
             candidate.description, fact.description, fact.category, location
         )
-        if verdict["same_defect"] and verdict["confidence"] >= 0.6:
-            group_size = len(candidates) + 1
-            return candidate.issue_id, verdict["confidence"], group_size
-    return None, 0.0, group_size
+        if verdict["same_defect"] and verdict["confidence"] >= config.DUPLICATE_MIN_CONFIDENCE:
+            confirmed.append(
+                (candidate.issue_id, candidate.created_at, verdict["confidence"])
+            )
+    return grouping.pick_primary(confirmed)
 
 
 def _cluster_members(session: Session, fact: IssueFact) -> list[IssueFact]:
@@ -176,6 +185,11 @@ def run_triage(session: Session, issue_id: str) -> TriageResult:
 
     fact = sync_issue_fact(session, issue)
     duplicate_of, dup_confidence, dup_count = _find_duplicate(session, fact)
+    # Mirror what the write-back below is about to tell reporting. Reporting is
+    # still the writer of record, but it publishes nothing on the write-back
+    # that comes back here, so the snapshot would carry a null duplicate link
+    # until the issue's next status change — and profiles() counts this column.
+    fact.duplicate_group_id = duplicate_of
     cluster = _systemic_check(session, fact)
 
     location = f"{fact.building} / {fact.floor}" + (f" / {fact.room}" if fact.room else "")

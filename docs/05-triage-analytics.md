@@ -1,9 +1,13 @@
 # 05 — Triage & Analytics
 
 The triage service keeps a denormalized snapshot (`issue_facts`) of all issues,
-refreshed from the reporting service on `issue.created` / `issue.closed` events
-and via `POST /analytics/sync`. All macro-level analysis runs on this snapshot,
-never on reporting's live DB.
+refreshed from the reporting service on `issue.created`, `issue.status_changed`
+and `issue.closed` events, and via `POST /analytics/sync`. Anything that moves an
+issue's state re-syncs the whole fact — a status the snapshot never hears about
+goes on counting as open work in `profiles()` and as an open duplicate candidate
+in `_find_duplicate`, which is why cancellation publishes an event too.
+
+All macro-level analysis runs on this snapshot, never on reporting's live DB.
 
 ## Systemic-fault detection (macro level)
 
@@ -26,6 +30,15 @@ Goal: surface deeper root problems that individual tickets hide.
    `issue_count` and `last_seen` are refreshed on every run, so both are
    as-of `updated_at`, not live — a cluster whose window has rolled off keeps
    its last computed count until a new member arrives.
+5. **Clusters decay.** `GET /analytics/systemic` therefore returns two counts
+   per cluster: the stored `issue_count`, which is what the detector saw when a
+   member last arrived, and `issue_count_live`, recounted over the current
+   window on every request, with `active` for whether it still clears
+   `SYSTEMIC_MIN_COUNT`. The list is ranked on the live count. Without it a
+   cluster someone remediated in March still tops the admin's list in
+   September, because nothing ever revisits a cluster that stopped accruing
+   members — and *stopped accruing members* is exactly what a fixed root cause
+   looks like from here.
 
 ## One issue in, one result out
 
@@ -96,8 +109,9 @@ Why a nullable second key rather than more columns on the row:
   live view: the 90-day window slides, so a cluster reports the members it has
   now, and one whose window has rolled off reports fewer than the
   `SYSTEMIC_MIN_COUNT` that flagged it. `SystemicCluster.issue_count` keeps the
-  detector's number and is what `GET /analytics/systemic` shows — the two
-  answer different questions and are expected to diverge.
+  detector's number — the two answer different questions and are expected to
+  diverge. `GET /analytics/systemic` returns both, as `issue_count` and
+  `issue_count_live` (above).
 
 ### `is_critical_system` is not a triage output
 
@@ -114,8 +128,8 @@ admin-set value survives a re-triage.
 Triage detects the cluster, writes the recommendation, and hands both back in
 `systemic_payload`. That is where its responsibility ends. It does not create,
 draft, hold, or notify anything for the admin — it publishes no events at all
-(the gateway routes `issue.created` and `issue.closed` *to* triage; nothing goes
-the other way, and the service has no `GATEWAY_URL`).
+(the gateway routes `issue.created`, `issue.status_changed` and `issue.closed`
+*to* triage; nothing goes the other way, and the service has no `GATEWAY_URL`).
 
 Escalation — deciding a cluster is worth someone's attention and telling them —
 is a separate concern with a separate owner, and the payload is the whole of the
@@ -151,15 +165,32 @@ ordinary report — deliberate, in exchange for zero new schema.
 
 ## Profiles
 
-`GET /analytics/profiles?by=location|category` returns, per group (`building|floor`
-or `category`): `total`, `open` backlog, and `severity_mix`. That is all it
-returns today.
+`GET /analytics/profiles?by=location|category|equipment` returns, per group
+(`building|floor`, `category`, or `equipment_name`):
 
-Designed but not served — none of these are computed by `analytics.profiles`:
-repeat-rate per location, trend (last 30d vs prior 30d), median resolution time,
-duplicate rate per category, and an equipment profile (`by=equipment` is not an
-accepted value, though `GET /analytics/metrics?group_by=equipment` does group
-MTBF/MTTR by `equipment_name`).
+| Field | Over | Meaning |
+|---|---|---|
+| `total`, `open`, `severity_mix` | whole snapshot | size and shape of the backlog |
+| `duplicate_rate` | whole snapshot | share of the group's issues that arrived as a duplicate of an earlier one — read off `issue_facts.duplicate_group_id` |
+| `recent`, `prior`, `trend_pct` | `window_days` and the window before it | is this getting worse |
+| `repeat_rate` | `window_days` | share of the window's issues that are not the first of their category in this group |
+
+Two windows in one row, and both are labelled. `total` answers *how much has this
+place ever produced*; a rate needs a period or it only ever drifts towards
+whatever the building has always been like, so the trend and repeat figures use
+`analytics.TREND_WINDOW_DAYS` (30) and report it back as `window_days`.
+
+`trend_pct` is `null` against an empty prior window rather than 0% or infinity —
+no baseline is not the same as no change. `repeat_rate` is degenerate for
+`by=category`, where the group *is* one category and every issue after the first
+counts as a repeat; it means something for `by=location` and `by=equipment`.
+
+`duplicate_rate` reads a column on `issue_facts` rather than counting
+`triage.results` rows, because results are append-only and a re-run would
+double-count. Reporting is still the writer of record for the link: the pipeline
+mirrors onto the fact what it posts back, since nothing reporting publishes on
+the write-back returns to triage, and existing rows fill in on their next sync
+or immediately via `POST /analytics/sync`.
 
 ## Metrics
 
@@ -184,10 +215,17 @@ for quality).
 MTTR(g) = mean(fixed_at - created_at)   over issues with fixed_at set
 ```
 
-Also exposed: `MTTC` (mean time to close, `closed_at - created_at`) as
-`mttc_days`. Verification overhead (`closed_at - fixed_at`) is *not* computed —
-a reader wanting it subtracts `mttr_days` from `mttc_days`, which is the same
-number only for the issues that have both timestamps.
+Also exposed per group:
+
+- `mttc_days` — mean time to close, `closed_at - created_at`.
+- `median_repair_days` — `statistics.median` over the same repairs `mttr_days`
+  averages. A mean is one abandoned ticket away from being useless; the median
+  is what a reporter should actually expect to wait.
+- `verification_overhead_days` — `mean(closed_at - fixed_at)` over the issues
+  that have *both* stamps: how long a finished repair waits on proof and
+  sign-off. Computed directly, not as `mttc_days - mttr_days` — those two means
+  are taken over different sets of issues, so the subtraction is only correct
+  when every repaired issue also closed.
 
 ### Quality signals (vendor performance beyond speed)
 Served by `GET /analytics/vendor-performance`, which reads the `fixverify` schema
@@ -207,6 +245,25 @@ bumps suggested severity one level — multiple reports indicate wider impact.
 Duplicate issues stay open and visible to their own reporters (each reporter's
 dashboard tracks their submission).
 
+**The group primary is the oldest member, not the closest match.** A pg_trgm
+pre-filter picks the five most similar open issues at the location and the LLM
+confirms each one; `grouping.pick_primary` then takes the earliest `created_at`
+of the confirmations (`python3 grouping.py`). Ranking by similarity instead
+would let a duplicate name another duplicate as its primary — and that primary,
+riding someone else's work order, has none of its own, so fixverify's gate looks
+up `WorkOrder.issue_id == group_id`, finds nothing, and dispatches anyway.
+Oldest is the original report, so every member of a group converges on the same
+primary and chains cannot form. `grouping.cluster_key` is likewise the one
+formula for a cluster's key, shared by the per-issue check and the live counts
+in `analytics.systemic_clusters` so the two cannot drift.
+
+**`duplicate_count` counts confirmations, plus this issue.** Every candidate is
+put to the LLM rather than stopping at the first hit, because the number is what
+it costs: it feeds the bump rule above and is posted to reporting. The
+no-duplicate path already scanned all five candidates, so only the found-early
+case loses its short-circuit. Confidence is compared against
+`config.DUPLICATE_MIN_CONFIDENCE`.
+
 **One defect, one dispatch.** Fixverify's `issue.triaged` handler skips work
 order creation when the issue is a duplicate whose group primary already has a
 live work order (`fixverify/app/dedupe.py::is_covered_by_primary`) — the
@@ -223,13 +280,6 @@ For the PoC an admin closes it via the status API.
 
 Recorded so they are not rediscovered during implementation. None is fixed.
 
-- **`duplicate_count` counts candidates, not confirmed duplicates.**
-  `pipeline._find_duplicate` sets `group_size = len(candidates) + 1` when *any*
-  candidate is confirmed, where `candidates` is the trigram pre-filter's top 5 —
-  so it counts unrelated issues at the same location. That number feeds the
-  `duplicate_count >= 3` severity bump in `_apply_hard_rules` and is posted to
-  reporting as `duplicate_count`. One genuine duplicate plus two unrelated
-  same-location issues silently bumps severity a level.
 - **Nobody escalates a cluster.** Not a triage gap — triage's side is done, it
   returns `systemic_payload` — but no other component reads it yet, so an admin
   learns about a cluster only by opening a triaged issue or
@@ -240,6 +290,11 @@ Recorded so they are not rediscovered during implementation. None is fixed.
   The fix is a rule in reporting on `issue.closed` — deliberately not built yet,
   because it needs a decision on whether the group closes with the primary or
   each reporter still confirms their own ticket.
+- **A cluster's `first_seen` and the duplicate link are never re-derived.** Both
+  are written once and left. A re-triage that finds a different primary
+  overwrites triage's own copy but not reporting's, which only ever sets
+  `duplicate_group_id` and never clears it. Harmless at PoC scale, and the cost
+  of keeping reporting the single writer of issue state.
 
 ## Triage pipeline (per issue)
 
@@ -321,7 +376,9 @@ Side effects of that single call:
 3. `triage.results` — the row above, appended.
 4. `POST /issues/{id}/triage-result` to reporting:
    `{"severity": "medium", "urgency": "routine", "equipment_name": "ceiling light",
-   "duplicate_group_id": null, "duplicate_count": 1}`. A failure here is logged,
+   "duplicate_group_id": null, "duplicate_count": 1}` — the count is confirmed
+   duplicates plus one, so an issue with no confirmed duplicate posts 1 no
+   matter how full the candidate pre-filter was. A failure here is logged,
    not raised — the local result stands even if the write-back does not.
 5. Nothing is published. The recommendation this run wrote leaves in the
    response, as `systemic_payload` above, and nowhere else.
