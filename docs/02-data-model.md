@@ -71,6 +71,7 @@ The reference is a facilities job-request export. We adapted it as follows:
 | `severity` | TEXT enum, nullable | `low` `medium` `high` `critical` (set at triage) |
 | `urgency` | TEXT enum, nullable | `routine` `urgent` `emergency` (set at triage) |
 | `is_critical_system` | INTEGER bool | default 0 |
+| `origin_cluster_id` | TEXT, nullable | Set when the issue *is* a systemic escalation raised by an admin from a triage cluster. Excluded from clustering so it cannot re-trigger its own cluster (doc 05). |
 | `duplicate_group_id` | TEXT, nullable | Shared by duplicates of one underlying defect |
 | `duplicate_count` | INTEGER | # of reports in the group (drives escalation) |
 | `estimated_resolution_days` | REAL, nullable | Expectation shown to reporter |
@@ -100,7 +101,11 @@ Denormalized copy of the issue fields needed for analytics:
 
 ### `triage.systemic_clusters`
 `id`, `cluster_key` (e.g. `lighting|BlockA|L3`), `issue_count`, `first_seen`,
-`last_seen`, `recommendation` (LLM: preventive/prescriptive maintenance advice)
+`last_seen`, `recommendation` (LLM: preventive/prescriptive maintenance advice),
+`draft_title` / `draft_description` (TEXT, nullable — the escalation issue the
+admin reviews before sending; edits overwrite them in place),
+`escalated_issue_id` (TEXT, nullable — the issue the admin raised from this
+cluster; while set, no new draft is produced), `escalated_at`
 
 ## Fix & Verify service — schema `fixverify`
 

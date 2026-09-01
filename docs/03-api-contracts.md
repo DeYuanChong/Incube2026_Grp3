@@ -11,7 +11,7 @@ service-local. Gateway mapping: `/api/reporting/*→:8001/*`, `/api/triage/*→:
 
 | Method & path | Purpose |
 |---|---|
-| `POST /issues` | Create issue. Body: `{category, title, description, building, floor, room?, equipment_name?}`. Runs AI categorization + ETA. Returns the issue incl. `ai_suggested_category` and `estimated_resolution_days`. Emits `issue.created`. |
+| `POST /issues` | Create issue. Body: `{category, title, description, building, floor, room?, equipment_name?, origin_cluster_id?}` (`origin_cluster_id` only when triage raises a systemic escalation on an admin's behalf — see doc 05). Runs AI categorization + ETA. Returns the issue incl. `ai_suggested_category` and `estimated_resolution_days`. Emits `issue.created`. |
 | `GET /issues` | List. Filters: `status`, `category`, `building`, `floor`, `reporter`, `q` (text), `limit`, `offset`. |
 | `GET /issues/{id}` | Full issue + timeline (`issue_events`). |
 | `PATCH /issues/{id}` | Reporter edits (title/description/location) while `status=reported`. |
@@ -29,6 +29,8 @@ service-local. Gateway mapping: `/api/reporting/*→:8001/*`, `/api/triage/*→:
 | `POST /triage/run/{issue_id}` | Run/re-run the triage pipeline for one issue (also invoked by the `issue.created` webhook). Returns the `triage_result`. |
 | `GET /triage/results/{issue_id}` | Latest triage result. |
 | `POST /triage/results/{issue_id}/confirm` | Admin confirms or overrides `{severity?, urgency?}` → PATCHes reporting. |
+| `GET /triage/escalations` | Admin panel queue: systemic clusters with a draft and no `escalated_issue_id`, each with `draft_title`/`draft_description` and the member issues as evidence. |
+| `POST /triage/escalations/{cluster_id}/send` | Admin raises the escalation as a **new issue** they own. Empty body accepts the draft as-is; `{title?, description?, category?, building?, floor?, severity_hint?}` adjusts it first. Calls reporting `POST /issues` with the admin's identity headers (`reporter_name` = admin) and `origin_cluster_id` = cluster; records `escalated_issue_id`/`escalated_at`. |
 | `GET /analytics/systemic` | Clusters of repeated issues (same category+location, min count ≥ threshold) with LLM maintenance recommendations. |
 | `GET /analytics/metrics` | `{mtbf: [...], mttr: [...]}` grouped by `group_by=category\|building\|floor\|equipment`. |
 | `GET /analytics/profiles` | Location profile & issue profile summaries (counts, trends). |

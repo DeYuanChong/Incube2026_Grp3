@@ -94,6 +94,7 @@ flowchart LR
 |---|---|---|
 | `issue.created` | reporting | triage (auto-triage), notification |
 | `issue.triaged` | triage | fixverify (create work order), notification, reporting (already patched via REST) |
+| `issue.escalated` | triage | notification (admin: a systemic-fault issue is drafted and awaiting review) |
 | `issue.status_changed` | reporting | notification |
 | `work_order.started` | fixverify | notification |
 | `proof.uploaded` | fixverify | notification (tell admin if it passed relevance) |
