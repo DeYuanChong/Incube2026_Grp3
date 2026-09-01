@@ -42,6 +42,21 @@ cp .env.example .env   # fill in VLLM_* values
 docker compose up --build
 ```
 
+> **Always pass `--build` after pulling changes.** A plain `docker compose up`
+> reuses previously built images, so dependency changes (`requirements.txt`,
+> `package.json`) won't be picked up — services then crash on startup with
+> errors like `ModuleNotFoundError`. Rebuild and restart everything with:
+>
+> ```bash
+> docker compose up -d --build
+> ```
+
+Note on vLLM: inside a container, `localhost` is the container itself. If your
+vLLM endpoint runs on the host machine, set
+`VLLM_BASE_URL=http://host.docker.internal:PORT/v1` (or your host's LAN IP).
+If it is unreachable, the app still works — AI features degrade gracefully
+(user category kept, proofs routed to human review).
+
 ### Option B: run locally
 
 ```bash
