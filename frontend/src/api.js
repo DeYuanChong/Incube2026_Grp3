@@ -59,10 +59,10 @@ export const api = {
   statsLoad: () => request('/api/reporting/stats/load'),
 
   // triage
-  triageResult: (issueId) => request(`/api/triage/triage/results/${issueId}`),
-  runTriage: (issueId) => request(`/api/triage/triage/run/${issueId}`, { method: 'POST' }),
+  triageResult: (issueId) => request(`/api/triage/results/${issueId}`),
+  runTriage: (issueId) => request(`/api/triage/run/${issueId}`, { method: 'POST' }),
   confirmTriage: (issueId, data) =>
-    request(`/api/triage/triage/results/${issueId}/confirm`, { method: 'POST', body: data }),
+    request(`/api/triage/results/${issueId}/confirm`, { method: 'POST', body: data }),
   systemic: () => request('/api/triage/analytics/systemic'),
   metrics: (groupBy = 'category') => request(`/api/triage/analytics/metrics?group_by=${groupBy}`),
   profiles: (by = 'location') => request(`/api/triage/analytics/profiles?by=${by}`),

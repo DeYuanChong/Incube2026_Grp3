@@ -7,6 +7,12 @@ Each service creates its own schema at startup (`CREATE SCHEMA IF NOT EXISTS`).
 Ownership rules:
 - Each service **writes only** tables in its own schema (it remains the single
   writer and migration owner for them).
+- Tables are created by `SQLModel.metadata.create_all`, which creates what is
+  **missing** and never alters what exists. The DB lives on a persistent volume,
+  so a column added to a model after the first deploy silently does not exist on
+  a running stack. Added columns therefore ship as idempotent DDL in the
+  service's `init_db()`, **after** `create_all` — see
+  `triage/app/db.py` (`ALTER TABLE … ADD COLUMN IF NOT EXISTS`).
 - **Triage may read the `fixverify` schema** (read-only, raw SQL) — triage
   folds repair durations, proof rejections, and resolved-on-arrival counts into
   its analytics (`/analytics/vendor-performance`).
@@ -33,7 +39,7 @@ The reference is a facilities job-request export. We adapted it as follows:
 | Reference field | Our field / decision |
 |---|---|
 | Issue, Failure Type, Fault Classification | `description`, `category`, `ai_suggested_category` |
-| Impact, Emergency, Is Critical System? | `severity`, `urgency`, `is_critical_system` (triage outputs) |
+| Impact, Emergency, Is Critical System? | `severity`, `urgency` (triage outputs); `is_critical_system` is admin-set on the issue, not a triage output — triage states it inside `severity_rationale` instead (doc 05) |
 | Exact Location, Unit | `building`, `floor`, `room` (room optional), `equipment_name` |
 | Requestor Name | `reporter_name` (demo-mode header) |
 | Created/Reported Date Time (+ Month/Quarter/Year variants) | `created_at` only — month/quarter/year are derived at query time, not stored |
@@ -73,7 +79,7 @@ The reference is a facilities job-request export. We adapted it as follows:
 | `severity` | TEXT enum, nullable | `low` `medium` `high` `critical` (set at triage) |
 | `urgency` | TEXT enum, nullable | `routine` `urgent` `emergency` (set at triage) |
 | `is_critical_system` | INTEGER bool | default 0 |
-| `duplicate_group_id` | TEXT, nullable | Shared by duplicates of one underlying defect |
+| `duplicate_group_id` | TEXT, nullable | Shared by duplicates of one underlying defect. Also gates dispatch: a duplicate rides the group primary's work order (doc 05). |
 | `duplicate_count` | INTEGER | # of reports in the group (drives escalation) |
 | `resolution_type` | TEXT, nullable | `repaired` `replaced` `no_action` `self_resolved` `duplicate` |
 | `resolution_notes` | TEXT, nullable | |
@@ -103,19 +109,53 @@ non-actionable FYI text — no accept action), `photo_mismatch_reason`
 
 ### `triage.results`
 `id`, `issue_id`, `suggested_severity`, `suggested_urgency`,
-`severity_rationale` (LLM explanation), `equipment_extracted`,
-`duplicate_of_issue_id`, `duplicate_confidence`, `systemic_flag` (bool),
+`severity_rationale` (LLM explanation — including whether a critical system is
+involved, which is a reason for the severity rather than a separate column),
+`equipment_extracted`, `duplicate_of_issue_id` (the group primary: the **oldest**
+confirmed duplicate, so members of a group converge on one primary instead of
+chaining — doc 05), `duplicate_confidence`, `systemic_flag` (bool),
 `systemic_cluster_id`, `admin_confirmed` (bool), `admin_override_severity`,
-`created_at`
+`admin_override_urgency`, `created_at`
+
+Append-only: a re-run adds a row rather than replacing the previous one, which is
+why anything that needs *counting* (the duplicate rate) reads a column on
+`issue_facts` and not these rows. There is no `systemic_payload` column — the
+endpoint composes it at serialization time from the `systemic_clusters` row and a
+live member query (doc 05).
 
 ### `triage.issue_facts` (local analytics snapshot, refreshed from reporting)
 Denormalized copy of the issue fields needed for analytics:
-`issue_id`, `category`, `building`, `floor`, `room`, `equipment_name`,
-`severity`, `status`, `created_at`, `fixed_at`, `closed_at`, `synced_at`
+`issue_id`, `reference_no`, `category`, `building`, `floor`, `room`,
+`equipment_name`, `severity`, `status`, `description`, `duplicate_group_id`,
+`created_at`, `fixed_at`, `closed_at`, `synced_at`
+
+- `description` backs both the trigram duplicate pre-filter and the member
+  summaries in `systemic_payload`; `reference_no` is there so a member can be
+  named without a round trip to reporting.
+- `duplicate_group_id` mirrors reporting's column, which stays the writer of
+  record. It is what `profiles()` counts for the duplicate rate. The pipeline
+  writes onto the fact what it posts back to reporting, because nothing reporting
+  publishes on the write-back returns to triage; existing rows fill in on their
+  next sync or via `POST /analytics/sync`.
+- Refreshed on `issue.created`, `issue.status_changed` and `issue.closed`. A
+  status the snapshot never hears about goes on counting as open work, which is
+  why cancellation publishes an event too.
 
 ### `triage.systemic_clusters`
 `id`, `cluster_key` (e.g. `lighting|BlockA|L3`), `issue_count`, `first_seen`,
-`last_seen`, `recommendation` (LLM: preventive/prescriptive maintenance advice)
+`last_seen`, `recommendation` (LLM: preventive/prescriptive maintenance advice,
+written once under `if not cluster.recommendation` and never refreshed),
+`updated_at` (`issue_count` / `last_seen` are as-of this timestamp)
+
+`cluster_key` is unique and built by one formula, `triage/app/grouping.py::
+cluster_key`. It is **never parsed back apart** — a building or floor containing
+`|` would split into the wrong three parts — so anything needing the components
+reads them off the fact columns.
+
+`issue_count` is a stored high-water mark, refreshed only when a new member
+arrives, so a remediated cluster keeps its peak forever.
+`GET /analytics/systemic` therefore recounts the window per request and returns
+`issue_count_live` and `active` alongside it; neither is a column (doc 05).
 
 ## Fix & Verify service — schema `fixverify`
 

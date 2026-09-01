@@ -48,6 +48,9 @@ class IssueFact(SQLModel, table=True):
     severity: str | None = None
     status: str = "reported"
     description: str = ""
+    # Set by reporting on the triage write-back; mirrored here so the
+    # duplicate rate is countable without re-reading append-only results.
+    duplicate_group_id: str | None = None
     created_at: str = ""
     fixed_at: str | None = None
     closed_at: str | None = None

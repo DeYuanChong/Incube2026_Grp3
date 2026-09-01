@@ -81,12 +81,19 @@ user uploads is still processed.
 - **Call**: vision model with the image (base64 data URL) + issue description +
   evidence recommendation. Output: `{verdict: relevant|irrelevant|inconclusive,
   confidence, reason}`.
+- **Leniency**: the check is a coarse junk filter, not a strict gate. The
+  prompt instructs benefit-of-the-doubt judging — imperfect photos (blur,
+  partial views, poor lighting, surrounding context) count as `relevant`, and
+  `irrelevant` is reserved for clearly unrelated uploads (selfies, random
+  screenshots, a different room entirely).
 - **Policy**:
   - `relevant` → proof accepted for human verification; issue →
     `pending_verification`; admin notified (`proof.uploaded`).
-  - `irrelevant` → HTTP 422 with the `reason` (e.g. *"The photo shows a corridor,
-    but the issue describes a leaking toilet cistern"*); uploader must re-upload.
-    The rejected proof row is kept for audit.
+  - `irrelevant` with confidence ≥ `RELEVANCE_REJECT_CONFIDENCE` (0.8) →
+    HTTP 422 with the `reason` (e.g. *"The photo shows a corridor, but the
+    issue describes a leaking toilet cistern"*); uploader must re-upload.
+    The rejected proof row is kept for audit. Below the bar, the proof is
+    stored and routed to human review instead.
   - `inconclusive`, non-image media, vision endpoint down, or
     `requires_human_verification` → accepted as *unverified*, flagged for the
     human to judge (AI never blocks a fix from reaching a human).
@@ -142,6 +149,6 @@ user uploads is still processed.
 | `reporting/app/prompts.py::SUGGEST_DESCRIPTION` | reporting | description autocomplete |
 | `triage/app/prompts.py::SEVERITY` | triage | severity/urgency + equipment |
 | `triage/app/prompts.py::DUPLICATE` | triage | pairwise duplicate check |
-| `triage/app/prompts.py::SYSTEMIC` | triage | cluster maintenance recommendation |
+| `triage/app/prompts.py::SYSTEMIC` | triage | cluster maintenance recommendation (also the body of the admin escalation notification, doc 05) |
 | `fixverify/app/prompts.py::EVIDENCE` | fixverify | evidence recommendation |
 | `fixverify/app/prompts.py::RELEVANCE` | fixverify | vision relevance check |

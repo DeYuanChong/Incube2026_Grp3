@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from . import ai_client, config, events
+from . import ai_client, config, dedupe, events
 from .db import engine, get_session, init_db
 from .models import Proof, WorkOrder, now_iso
 
@@ -113,9 +113,12 @@ def evidence_recommendation(wo_id: str, session: Session = Depends(get_session))
     resp.raise_for_status()
     issue = resp.json()["issue"]
     rec = ai_client.recommend_evidence(issue["category"], issue["title"], issue["description"])
-    wo.evidence_recommendation = json.dumps(rec)
-    wo.requires_human_verification = bool(rec.get("requires_human_verification", False))
-    session.commit()
+    if not rec.pop("fallback", False):
+        # Only cache real AI output — a fallback would otherwise be served
+        # forever even after the AI endpoint comes back up
+        wo.evidence_recommendation = json.dumps(rec)
+        wo.requires_human_verification = bool(rec.get("requires_human_verification", False))
+        session.commit()
     return rec
 
 
@@ -278,6 +281,22 @@ def _handle_event(event: dict) -> None:
         except httpx.HTTPError:
             log.warning("could not fetch issue %s for work order", issue_id, exc_info=True)
             return
+
+        # One defect, one dispatch: a duplicate rides the group primary's work
+        # order rather than sending maintenance out twice (docs/05).
+        group_id = issue.get("duplicate_group_id")
+        primary = session.exec(
+            select(WorkOrder).where(WorkOrder.issue_id == group_id)
+        ).first() if group_id else None
+        if dedupe.is_covered_by_primary(
+            issue_id, group_id, primary.status if primary else None
+        ):
+            log.info(
+                "issue %s is a duplicate of %s (work order %s) — no second work order",
+                issue_id, group_id, primary.id,  # type: ignore[union-attr]
+            )
+            return
+
         session.add(WorkOrder(
             issue_id=issue_id,
             issue_reference_no=issue.get("reference_no", ""),
