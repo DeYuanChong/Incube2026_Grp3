@@ -10,7 +10,7 @@ gives facilities managers macro-level insight, not just a ticket queue.
 
 | Stage | Who | What happens |
 |---|---|---|
-| 1. User Reporting | Reporter | Submit category, location (building/floor/room — room optional), description. AI suggests a (re-)categorization; reporter's choice is never silently overridden. System returns an expected-resolution estimate ("~X days") based on priority and live open-issue load, so reporters can decide whether to self-resolve. Reporter tracks live status on a dashboard. |
+| 1. User Reporting | Reporter | Submit category, location (building/floor/room — room optional), description. AI suggests a (re-)categorization; reporter's choice is never silently overridden. Reporter tracks live status on a dashboard. |
 | 2. Triage | System + Admin | AI + heuristics suggest severity and urgency class. Cross-referencing across all issues flags systemic faults (repeat issues on same floor, same equipment, same issue profile), detects duplicates (same defect reported by different users → escalate severity/urgency), and computes MTBF / MTTR metrics. Admin confirms or overrides. |
 | 3. Fix & Verify | Maintenance + Admin | A work order is created. The system recommends what proof of work to upload (e.g., before/after thermostat photos for aircon temperature) — a recommendation, never a hard requirement that overrides what the user uploads. Uploaded proof is AI-checked for relevance to the issue description; irrelevant proof is rejected with a stated reason and must be re-uploaded. Issues that cannot be verified visually (e.g., "bad smell at Level 2") are routed to human verification. When proof passes the relevance check, a human (admin) is notified to do final verification. |
 | 4. Close Loop | Reporter + Admin | After admin verification the reporter is notified and asked to confirm resolution ("user closed defect"). Auto-close after a grace period if the reporter does not respond. Closure feeds MTTR/MTBF metrics back into triage analytics. |
@@ -54,7 +54,7 @@ never hold their own copy of an issue's status as the source of truth.
 
 | Transition | Driven by | How |
 |---|---|---|
-| `[*] → reported` | **Reporting** | `POST /issues` (reporter, via frontend). Reporting also runs AI categorization + ETA here. |
+| `[*] → reported` | **Reporting** | `POST /issues` (reporter, via frontend). Reporting also runs AI categorization here. |
 | `reported → triaged` | **Triage** | Auto-pipeline on the `issue.created` event (admin confirm/override optional) → `POST /issues/{id}/triage-result` on reporting. |
 | `triaged → in_progress` | **Fix & Verify** | Work order created on `issue.triaged` event; `POST /work-orders/{id}/start` → reporting status API. |
 | `triaged → pending_verification` (resolved on arrival) | **Fix & Verify** | Maintenance arrives and finds the defect already resolved (e.g. a spill someone else cleaned up, or the reporter self-serviced): a proof is uploaded on the still-`open` work order — the AI relevance check and human verification still apply, but `in_progress` is skipped. Work order is marked `resolved_on_arrival`; closure typically uses `resolution_type: self_resolved`. |
@@ -69,7 +69,7 @@ Boundaries of what each service owns (and explicitly does *not*):
 
 | Service | Owns | Does NOT own |
 |---|---|---|
-| **Reporting** | The `issues` table, the status state machine, timeline, reference numbers, categorization suggestions, ETA. | Severity/urgency *decisions* (it stores what triage tells it), work orders, proofs, notifications. |
+| **Reporting** | The `issues` table, the status state machine, timeline, reference numbers, categorization suggestions. | Severity/urgency *decisions* (it stores what triage tells it), work orders, proofs, notifications. |
 | **Triage** | Triage results, its own `issue_facts` analytics snapshot, systemic clusters, MTBF/MTTR. | Issue status — it writes results back through reporting's API only. It reads issues via REST, never reporting's DB. |
 | **Fix & Verify** | Work orders, uploaded proof files, AI relevance verdicts, human verification records. | Issue status (requests transitions via reporting), triage decisions, who gets notified. |
 | **Notification** | The notification inbox and the event→notification rules. | Any issue/work-order state; it is a pure consumer of events. |

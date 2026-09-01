@@ -35,7 +35,7 @@ export default function Dashboard() {
         <table>
           <thead>
             <tr><th>Ref</th><th>Title</th><th>Category</th><th>Location</th>
-                <th>Severity</th><th>Status</th><th>ETA</th></tr>
+                <th>Severity</th><th>Status</th></tr>
           </thead>
           <tbody>
             {issues.map((issue) => (
@@ -46,10 +46,9 @@ export default function Dashboard() {
                 <td>{issue.building} / {issue.floor}{issue.room ? ` / ${issue.room}` : ''}</td>
                 <td>{issue.severity ? <span className={`badge ${issue.severity}`}>{issue.severity}</span> : '—'}</td>
                 <td><span className={`badge ${issue.status}`}>{issue.status.replace('_', ' ')}</span></td>
-                <td>{issue.estimated_resolution_days ? `~${issue.estimated_resolution_days}d` : '—'}</td>
               </tr>
             ))}
-            {issues.length === 0 && <tr><td colSpan={7} className="hint">No issues yet.</td></tr>}
+            {issues.length === 0 && <tr><td colSpan={6} className="hint">No issues yet.</td></tr>}
           </tbody>
         </table>
       </div>

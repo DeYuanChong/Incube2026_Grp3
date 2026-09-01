@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The **reporting** service (port 8001) is one of five FastAPI microservices in a
 larger defect-reporting monorepo (`services/gateway`, `reporting`, `triage`,
 `fixverify`, `notification`, plus a React `frontend/`). This service is the
-**source of truth for issues**: intake, smart categorization, ETA estimation,
-and the full issue status state machine. Other services (`triage`,
+**source of truth for issues**: intake, smart categorization, and the full
+issue status state machine. Other services (`triage`,
 `fixverify`) call back into this service's endpoints to advance an issue's
 status; they never write to its tables directly.
 
@@ -68,17 +68,12 @@ image and the service will crash with `ModuleNotFoundError`.
   verdict; same suggest-only rule applies to the `ai_suggested_title`/
   `ai_suggested_description` it can produce (accepted via
   `POST /issues/{id}/accept-suggested-title`/`-description`).
-- `app/estimator.py` — deterministic (non-AI) ETA calculation from
-  `BASE_DAYS[category] * SEVERITY_MULT[severity] * load_factor(open_count)`.
-  Recomputed both at creation (severity unknown yet) and again when triage
-  results arrive (`POST /issues/{id}/triage-result`).
 - `app/events.py` — fire-and-forget event publishing to the gateway's
   `/events` endpoint; failures are logged, never raised, since events are
   best-effort side channels, not the source of truth.
 - `app/prompts.py` — LLM prompt templates, kept separate from client code.
 - `app/config.py` — all env-driven config with defaults; loads `.env` via
-  `python-dotenv`. Notable: `VLLM_*` (AI endpoint), `CAPACITY_PER_DAY`,
-  `BASE_DAYS`, `SEVERITY_MULT` (ETA tuning), `UPLOAD_DIR` (photo storage,
+  `python-dotenv`. Notable: `VLLM_*` (AI endpoint), `UPLOAD_DIR` (photo storage,
   defaults to `data/uploads/issues` — a subfolder of the same docker volume
   `fixverify` mounts for its proofs, so the two services' uploaded files
   don't collide), `PHOTO_MISALIGN_CONFIDENCE` (threshold above which a
@@ -97,7 +92,7 @@ the issue's current category, the pending text-only suggestion (if any) from
 `suggest_category`, and a **majority vote** across the issue's photos (each
 photo votes for the category it was checked against if `aligned`, or its own
 `suggested_category` if `misaligned`) — see `docs/04-ai-integration.md`
-section 7 for the full decision table before touching this function; it's
+section 6 for the full decision table before touching this function; it's
 easy to get the agree/disagree cases backwards. Editing an issue via `PATCH`
 clears all of these suggestion/note fields, since they'd otherwise reference
 now-stale text.

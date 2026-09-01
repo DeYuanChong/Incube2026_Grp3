@@ -36,17 +36,19 @@ verdict is "misaligned" and you are confident about what the photo actually
 shows. Otherwise use null for all three.
 """
 
-SUGGEST_DESCRIPTION = """You help a facility-defect reporter draft a description from just a title.
-The reporter has not written a description yet.
+SUGGEST_DESCRIPTION = """You help a facility-defect reporter draft a description.
 
 Report so far:
 - Title: {title}
 - Category: {category}
 - Location: {location}
+- What the reporter has typed in the description field so far: {existing_text}
 
-Write a concise, plausible 1-2 sentence description a reporter could use as a starting
-point, in plain factual language (no greetings, no questions). If the title is too vague
-to infer anything useful, return an empty string for description.
+If the reporter has already typed something, continue/complete it into a concise,
+plausible 1-2 sentence description that keeps their wording and intent rather than
+replacing it. If they haven't typed anything yet, draft a fresh 1-2 sentence
+description from the title alone. Plain factual language, no greetings, no questions.
+If there isn't enough to go on, return an empty string for description.
 
 Respond with strict JSON only:
 {{"description": "<1-2 sentence description, or empty string>", "confidence": <0.0-1.0>}}

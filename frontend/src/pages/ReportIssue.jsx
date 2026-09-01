@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
+
+const BUILDINGS = ['A', 'B', 'Annex']
 
 const CATEGORIES = [
   ['air_conditioning', 'Air-Conditioning',
@@ -37,18 +39,48 @@ export default function ReportIssue() {
   const [floor, setFloor] = useState('')
   const [room, setRoom] = useState('')
   const [description, setDescription] = useState('')
+  const [descTouched, setDescTouched] = useState(false)
+  const [descSuggestion, setDescSuggestion] = useState(null)
   const [ack, setAck] = useState(false)
   const [photos, setPhotos] = useState([])
-  const [estimate, setEstimate] = useState(null)
   const [created, setCreated] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const suggestionRequestId = useRef(0)
+
+  // AI description autocomplete: after 2s of no typing, suggest a draft/continuation.
+  useEffect(() => {
+    if (!descTouched || !issueType) return
+    setDescSuggestion(null)
+    const requestId = ++suggestionRequestId.current
+    const timer = setTimeout(() => {
+      api
+        .suggestDescription({
+          title: `${LABELS[category]} — ${issueType}`,
+          category,
+          building: building || null,
+          floor: floor || null,
+          existing_text: description || null,
+        })
+        .then((res) => {
+          if (requestId !== suggestionRequestId.current) return // stale, superseded by newer typing
+          if (res.description && res.description !== description) setDescSuggestion(res.description)
+        })
+        .catch(() => {})
+    }, 2000)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [description, descTouched, issueType, category, building, floor])
+
+  const acceptSuggestedDraft = () => {
+    setDescription(descSuggestion)
+    setDescSuggestion(null)
+  }
 
   const pickCategory = (cat) => {
     setCategory(cat)
     setIssueType('')
     setStep(2)
-    api.estimateIssue(cat).then(setEstimate).catch(() => setEstimate(null))
   }
 
   const onPickPhotos = (e) => {
@@ -100,11 +132,6 @@ export default function ReportIssue() {
     return (
       <div className="card report-mobile">
         <h2>Issue {created.reference_no} submitted ✔</h2>
-        <p>
-          <strong>Estimated resolution: ~{created.estimated_resolution_days} days.</strong>
-          <br />
-          <span className="hint">{created.estimate_basis}</span>
-        </p>
         {suggestsCategory && (
           <div className="suggestion">
             Based on your description this looks like{' '}
@@ -176,10 +203,21 @@ export default function ReportIssue() {
                  onChange={(e) => setMobile(e.target.value.replace(/[^0-9 ]/g, '').slice(0, 9))}
                  placeholder="9123 4567" inputMode="numeric" />
         </div>
-        <label>Building</label>
-        <input required value={building} onChange={(e) => setBuilding(e.target.value)} placeholder="Block A" />
-        <label>Floor</label>
-        <input required value={floor} onChange={(e) => setFloor(e.target.value)} placeholder="Level 3" />
+        <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <label>Building</label>
+            <select required value={building} onChange={(e) => setBuilding(e.target.value)}>
+              <option value="" disabled>Select</option>
+              {BUILDINGS.map((b) => (
+                <option key={b} value={b}>{b}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{ flex: 1 }}>
+            <label>Floor</label>
+            <input required value={floor} onChange={(e) => setFloor(e.target.value)} placeholder="Level 3" />
+          </div>
+        </div>
         <label>Room or area (optional)</label>
         <input value={room} onChange={(e) => setRoom(e.target.value)} placeholder="03-12" />
         <label>What's the issue?</label>
@@ -190,11 +228,14 @@ export default function ReportIssue() {
           ))}
         </div>
         <label>Describe more (optional)</label>
-        <textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)}
+        <textarea rows={4} value={description}
+                  onChange={(e) => { setDescription(e.target.value); setDescTouched(true) }}
                   placeholder="Help us find it, or tell us more." />
-        {estimate && (
-          <div className="info-card">
-            Current estimate: <strong>~{estimate.estimated_resolution_days} days.</strong> {estimate.estimate_basis}
+        {descSuggestion && (
+          <div className="suggestion">
+            AI suggestion: <em>{descSuggestion}</em>{' '}
+            <button type="button" onClick={acceptSuggestedDraft}>Use this</button>{' '}
+            <button type="button" className="secondary" onClick={() => setDescSuggestion(null)}>Dismiss</button>
           </div>
         )}
         <label>Photo (optional)</label>

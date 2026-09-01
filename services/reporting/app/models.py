@@ -71,8 +71,6 @@ class Issue(SQLModel, table=True):
     is_critical_system: bool = False
     duplicate_group_id: str | None = Field(default=None, index=True)
     duplicate_count: int = 1
-    estimated_resolution_days: float | None = None
-    estimate_basis: str | None = None
     ai_suggested_title: str | None = None
     ai_suggested_description: str | None = None
     photo_note: str | None = None

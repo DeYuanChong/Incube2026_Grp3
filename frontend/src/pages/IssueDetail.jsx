@@ -50,10 +50,6 @@ export default function IssueDetail() {
           {issue.room ? ` / ${issue.room}` : ''} · reported by {issue.reporter_name}
           {issue.equipment_name ? ` · equipment: ${issue.equipment_name}` : ''}
         </p>
-        {issue.estimated_resolution_days && issue.status !== 'closed' && (
-          <p><strong>Estimated resolution: ~{issue.estimated_resolution_days} days.</strong>{' '}
-            <span className="hint">{issue.estimate_basis}</span></p>
-        )}
         {suggestsCategory && !dismissed.category && (
           <div className="suggestion">
             Based on your description this looks like <strong>{issue.ai_suggested_category.replace('_', ' ')}</strong>{' '}

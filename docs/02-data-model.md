@@ -75,8 +75,6 @@ The reference is a facilities job-request export. We adapted it as follows:
 | `is_critical_system` | INTEGER bool | default 0 |
 | `duplicate_group_id` | TEXT, nullable | Shared by duplicates of one underlying defect |
 | `duplicate_count` | INTEGER | # of reports in the group (drives escalation) |
-| `estimated_resolution_days` | REAL, nullable | Expectation shown to reporter |
-| `estimate_basis` | TEXT, nullable | Human-readable explanation of the estimate |
 | `resolution_type` | TEXT, nullable | `repaired` `replaced` `no_action` `self_resolved` `duplicate` |
 | `resolution_notes` | TEXT, nullable | |
 | `cancellation_reason` | TEXT, nullable | |

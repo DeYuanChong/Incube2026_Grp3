@@ -11,9 +11,8 @@ service-local. Gateway mapping: `/api/reporting/*→:8001/*`, `/api/triage/*→:
 
 | Method & path | Purpose |
 |---|---|
-| `POST /issues` | Create issue. Body: `{category, title, description?, building, floor, room?, equipment_name?, mobile_number, ack_confirmed}`. `description` is optional; `ack_confirmed` must be `true` (422 otherwise). Runs AI categorization + ETA. Returns the issue incl. `ai_suggested_category` and `estimated_resolution_days`. Emits `issue.created`. |
+| `POST /issues` | Create issue. Body: `{category, title, description?, building, floor, room?, equipment_name?, mobile_number, ack_confirmed}`. `description` is optional; `ack_confirmed` must be `true` (422 otherwise). Runs AI categorization. Returns the issue incl. `ai_suggested_category`. Emits `issue.created`. |
 | `GET /issues` | List. Filters: `status`, `category`, `building`, `floor`, `reporter`, `q` (text), `limit`, `offset`. |
-| `GET /issues/estimate` | Query `category`. Pre-submit ETA preview using the same deterministic formula as creation (docs/04 §2), with live open-issue load; does not create an issue. |
 | `GET /issues/{id}` | Full issue + timeline (`issue_events`). |
 | `PATCH /issues/{id}` | Reporter edits (title/description/location) while `status=reported`. |
 | `POST /issues/{id}/accept-suggested-category` | Reporter accepts the AI category (`category_source=ai_accepted`). |
@@ -21,11 +20,11 @@ service-local. Gateway mapping: `/api/reporting/*→:8001/*`, `/api/triage/*→:
 | `POST /issues/{id}/accept-suggested-description` | Reporter accepts the photo-derived description suggestion. |
 | `POST /issues/{id}/photos` | Multipart `file`. Only while `status=reported`. Runs vision verification against the issue's current category/title/description (docs/04 §7); recomputes `ai_suggested_category`/`ai_suggested_title`/`ai_suggested_description`/`photo_note` across all of the issue's photos. Emits `issue.photo_uploaded`. |
 | `GET /issues/{id}/photos/{photo_id}/file` | Serve an uploaded photo. |
-| `POST /issues/{id}/triage-result` | **Internal (triage svc)**: `{severity, urgency, equipment_name?, duplicate_group_id?, duplicate_count?, is_critical_system?}` → status `triaged`, recomputes ETA, emits `issue.triaged` timeline entry. |
+| `POST /issues/{id}/triage-result` | **Internal (triage svc)**: `{severity, urgency, equipment_name?, duplicate_group_id?, duplicate_count?, is_critical_system?}` → status `triaged`, emits `issue.triaged` timeline entry. |
 | `POST /issues/{id}/status` | Transition: `{status, actor, detail?}`. Validated against the state machine. Emits `issue.status_changed`. |
 | `POST /issues/{id}/close` | `{closed_by: reporter\|auto\|admin, resolution_type?, resolution_notes?}` from `verified`. Emits `issue.closed`. |
 | `POST /issues/{id}/cancel` | `{reason}` while `reported`. |
-| `GET /stats/load` | `{open_count, open_by_severity, avg_backlog_days}` — feeds ETA + dashboard. |
+| `GET /stats/load` | `{open_count, open_by_severity, avg_backlog_days}` — feeds dashboard. |
 
 ## Triage service (:8002)
 

@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import text
 from sqlmodel import Session, func, select
 
-from . import ai_client, config, estimator, events
+from . import ai_client, config, events
 from .db import get_session, init_db
 from .models import TRANSITIONS, Category, Issue, IssueEvent, IssuePhoto, Status, now_iso
 from .schemas import (
@@ -43,13 +43,6 @@ def _log_event(session: Session, issue_id: str, event_type: str, actor: str, det
             issue_id=issue_id, event_type=event_type, actor=actor, detail=json.dumps(detail)
         )
     )
-
-
-def _open_count(session: Session) -> int:
-    open_statuses = [s for s in Status if s not in (Status.closed, Status.cancelled)]
-    return session.exec(
-        select(func.count()).select_from(Issue).where(Issue.status.in_(open_statuses))
-    ).one()
 
 
 def _next_reference_no(session: Session) -> str:
@@ -131,11 +124,6 @@ def create_issue(
         issue.ai_suggested_category = suggestion["category"]
         issue.ai_category_confidence = suggestion["confidence"]
 
-    # Expectation management: ETA from category + live open-issue load (doc 04 §2)
-    days, basis = estimator.estimate(body.category.value, None, _open_count(session))
-    issue.estimated_resolution_days = days
-    issue.estimate_basis = basis
-
     session.add(issue)
     _log_event(session, issue.id, "created", who["user"], {"category": body.category.value})
     session.commit()
@@ -157,7 +145,7 @@ def suggest_description(body: SuggestDescriptionRequest):
     if body.building:
         location = body.building + (f" / {body.floor}" if body.floor else "")
     suggestion = ai_client.suggest_description(
-        body.title, body.category.value if body.category else None, location,
+        body.title, body.category.value if body.category else None, location, body.existing_text,
     )
     if not suggestion:
         return SuggestDescriptionResponse(description=None, confidence=None)
@@ -202,12 +190,6 @@ def list_issues(
         stmt = stmt.order_by(Issue.created_at.desc())  # type: ignore[attr-defined]
     stmt = stmt.limit(limit).offset(offset)
     return session.exec(stmt).all()
-
-
-@app.get("/issues/estimate")
-def estimate_issue(category: Category, session: Session = Depends(get_session)):
-    days, basis = estimator.estimate(category.value, None, _open_count(session))
-    return {"estimated_resolution_days": days, "estimate_basis": basis}
 
 
 @app.get("/issues/{issue_id}")
@@ -381,10 +363,6 @@ def apply_triage_result(
     if issue.status == Status.reported:
         issue.status = Status.triaged
         issue.triaged_at = now_iso()
-    # Severity is now known — refine the reporter-facing ETA
-    days, basis = estimator.estimate(issue.category.value, body.severity, _open_count(session))
-    issue.estimated_resolution_days = days
-    issue.estimate_basis = basis
     issue.updated_at = now_iso()
     _log_event(session, issue_id, "triaged", "triage-service",
                {"severity": body.severity, "urgency": body.urgency})

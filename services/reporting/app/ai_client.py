@@ -65,12 +65,15 @@ def suggest_category(
         return None
 
 
-def suggest_description(title: str, category: str | None, location: str | None) -> dict | None:
+def suggest_description(
+    title: str, category: str | None, location: str | None, existing_text: str | None = None
+) -> dict | None:
     """Returns {"description": str, "confidence": float} or None."""
     prompt = SUGGEST_DESCRIPTION.format(
         title=title,
         category=category or "not specified",
         location=location or "not specified",
+        existing_text=existing_text or "(nothing typed yet)",
     )
     try:
         resp = _client.chat.completions.create(

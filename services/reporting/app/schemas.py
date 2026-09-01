@@ -56,6 +56,7 @@ class SuggestDescriptionRequest(BaseModel):
     category: Category | None = None
     building: str | None = None
     floor: str | None = None
+    existing_text: str | None = None
 
 
 class SuggestDescriptionResponse(BaseModel):

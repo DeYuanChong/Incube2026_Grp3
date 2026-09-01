@@ -36,8 +36,8 @@ async function request(path, { method = 'GET', body, formData } = {}) {
 export const api = {
   // reporting
   createIssue: (data) => request('/api/reporting/issues', { method: 'POST', body: data }),
-  estimateIssue: (category) =>
-    request(`/api/reporting/issues/estimate?category=${category}`),
+  suggestDescription: (data) =>
+    request('/api/reporting/issues/suggest-description', { method: 'POST', body: data }),
   listIssues: (params = {}) =>
     request(`/api/reporting/issues?${new URLSearchParams(params)}`),
   getIssue: (id) => request(`/api/reporting/issues/${id}`),

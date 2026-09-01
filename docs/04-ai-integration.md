@@ -34,22 +34,7 @@ extractor for fenced JSON).
   (`POST /issues/{id}/accept-suggested-category`). Otherwise the user's category
   stands, and the suggestion is stored for triage analytics either way.
 
-## 2. Expectation management / ETA (Reporting)
-
-Deterministic formula (no LLM — must be explainable to the reporter):
-
-```
-base_days      = BASE_DAYS[category]            # e.g. lighting 2, aircon 3, others 5
-severity_mult  = {critical: 0.5, high: 0.75, medium: 1.0, low: 1.5}[severity or medium]
-load_factor    = 1 + min(open_issue_count / CAPACITY_PER_DAY, 2.0)   # live backlog pressure
-estimated_days = round(base_days * severity_mult * load_factor, 1)
-```
-
-Returned with `estimate_basis` text, e.g. *"Lighting defects typically take ~2
-days; 14 issues currently open (+40%)."* — so a reporter can judge whether
-self-resolving is faster. Recomputed at triage when severity is set.
-
-## 3. Severity & urgency suggestion (Triage)
+## 2. Severity & urgency suggestion (Triage)
 
 - **Input**: description, category, location, `is_critical_system` keywords,
   duplicate count, and the systemic-cluster context (how many similar recent
@@ -62,7 +47,7 @@ self-resolving is faster. Recomputed at triage when severity is set.
 - Admin can confirm/override; overrides are stored (`admin_override_severity`)
   to later evaluate AI suggestion quality.
 
-## 4. Duplicate detection (Triage)
+## 3. Duplicate detection (Triage)
 
 Heuristic first: same `category` + `building` + `floor` with `status` not closed,
 created within 14 days → candidate set. Then LLM compares descriptions pairwise
@@ -70,7 +55,7 @@ created within 14 days → candidate set. Then LLM compares descriptions pairwis
 `duplicate_group_id`; `duplicate_count` is written back to reporting and feeds
 the severity bump rule.
 
-## 5. Evidence recommendation (Fix & Verify)
+## 4. Evidence recommendation (Fix & Verify)
 
 LLM, given issue description + category, returns:
 
@@ -90,7 +75,7 @@ LLM, given issue description + category, returns:
 to an admin. Recommendations are **suggestions only**; whatever the maintenance
 user uploads is still processed.
 
-## 6. Proof-of-work relevance verification (Fix & Verify)
+## 5. Proof-of-work relevance verification (Fix & Verify)
 
 - **When**: on every proof upload with `media_type=image`.
 - **Call**: vision model with the image (base64 data URL) + issue description +
@@ -108,7 +93,7 @@ user uploads is still processed.
 - **Final say is always human**: AI relevance is a pre-filter; an admin performs
   the actual verification (`POST /proofs/{id}/human-verify`).
 
-## 7. Photo verification & recategorization (Reporting)
+## 6. Photo verification & recategorization (Reporting)
 
 - **When**: on `POST /issues/{id}/photos` (reporters can attach photos to
   their own report while it is still `status=reported`; stored permanently,
@@ -137,7 +122,7 @@ user uploads is still processed.
   or `.../accept-suggested-description`. Editing the issue's text clears any
   pending photo-derived suggestions (they'd reference stale text).
 
-## 8. Description autocomplete (Reporting)
+## 7. Description autocomplete (Reporting)
 
 - **When**: `POST /issues/suggest-description`, called while the report form is
   being filled, before the issue exists.
