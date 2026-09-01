@@ -188,9 +188,20 @@ currently list these as designed-but-not-served.
   backfill path step 3 depends on. Kept.
 - **Frontend.** `api.triageResult`, `api.profiles` and `api.vendorPerformance` still
   have zero callers, so everything above remains invisible in the running app.
+  **Since addressed by the dashboard revamp:** the analytics are now visible via
+  `GET /analytics/insights`, which composes `profiles`, `metrics`,
+  `vendor_performance` and `systemic_clusters` server-side for the AI insights
+  page. The three `api.*` helpers above are still uncalled — the composition
+  happens in Python, not in the client — so they remain candidates for removal.
 
 ## Known drift
 
 `docs/03-api-contracts.md` lists the pre-fix `/triage/run` and `/triage/results`
 paths and still shows `is_critical_system` in the `POST /issues/{id}/triage-result`
 body. Both are wrong. Left untouched by instruction.
+
+Partially closed since: doc 03's reporting and analytics rows were rewritten for
+the dashboard work (role scoping on `GET /issues`, `GET /stats/dashboard`,
+`GET /analytics/insights`, the MTBF duplicate rule, and the `/stats/load` shape,
+which had promised an `avg_backlog_days` that never existed in code). The two
+wrong `/triage/*` paths and the `is_critical_system` body are still there.

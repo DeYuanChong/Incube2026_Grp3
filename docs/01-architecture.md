@@ -104,7 +104,20 @@ flowchart LR
 
 ## Demo-mode identity
 
-No login. The frontend role picker sets two headers on every request:
-`X-User: <display name>`, `X-Role: reporter|maintenance|admin`. Services read
-these for attribution and inbox targeting. Swapping in real auth later means
-replacing the header extraction dependency (`get_current_user`) in each service.
+No login. The role picker in the frontend's sidebar footer sets two headers on
+every request: `X-User: <display name>`, `X-Role: reporter|maintenance|admin`.
+Swapping in real auth later means replacing the header extraction dependency
+(`get_current_user`) in each service.
+
+Three services read them, for different reasons:
+
+| Service | Uses the headers for |
+|---|---|
+| reporting | Attribution (`reporter_name`, event actors) **and read scoping** — `resolve_scope()` restricts `GET /issues` and `GET /stats/dashboard` to what the role may see: a reporter only issues they reported; maintenance only `in_progress`, `pending_verification`, `verified`, `closed`, `cancelled` (`config.MAINTENANCE_STATUSES`); an admin everything. |
+| notification | Inbox targeting (`target_role` / `target_user`). |
+| fixverify, triage | Attribution only (proof uploader, verifier, admin override). |
+
+Scoping lives in one function so the issue list and the dashboard aggregates
+over it cannot describe different populations. It is **not** authorization —
+there is no server-side enforcement of who may call what, and the headers are
+self-asserted. It is there so each role's screens show a coherent slice.

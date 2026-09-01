@@ -126,10 +126,18 @@ admin-set value survives a re-triage.
 ## Systemic escalation is not triage's job
 
 Triage detects the cluster, writes the recommendation, and hands both back in
-`systemic_payload`. That is where its responsibility ends. It does not create,
-draft, hold, or notify anything for the admin — it publishes no events at all
-(the gateway routes `issue.created`, `issue.status_changed` and `issue.closed`
-*to* triage; nothing goes the other way, and the service has no `GATEWAY_URL`).
+`systemic_payload`. It does not create, draft, hold, or notify anything for the
+admin — it publishes no events at all (the gateway routes `issue.created`,
+`issue.status_changed` and `issue.closed` *to* triage; nothing goes the other
+way, and the service has no `GATEWAY_URL`).
+
+**Where the line has since moved.** `GET /analytics/insights` ranks clusters —
+with trends, asset MTBF and proof-rejection rates — and decides which clear a
+threshold worth an admin's attention. That is a *read-time* judgement over data
+triage already owns, in the same class as `/analytics/systemic`, and it keeps
+the thresholds in one curl-testable place instead of in a client. Triage still
+pushes nothing: no events, no notifications, no drafts. The push side of
+escalation, below, remains unowned and unbuilt.
 
 Escalation — deciding a cluster is worth someone's attention and telling them —
 is a separate concern with a separate owner, and the payload is the whole of the
@@ -148,8 +156,10 @@ cluster is stored:
   There is no top-level `issue_id` — no issue exists for the *cluster* — so any
   consumer keyed on `payload.issue_id` needs its own case. `issues[]` carries
   the members, which is what a notification would link to.
-- **Nothing new to read from.** `GET /analytics/systemic` already returns every
-  cluster with its recommendation.
+- **Nothing new to read from.** `GET /analytics/systemic` returns every cluster
+  with its recommendation, and `GET /analytics/insights` returns the ranked,
+  card-shaped read of them with the decayed ones marked. A notifier needs
+  neither a new endpoint nor a new column.
 - **A cluster's recommendation is written once and not refreshed.** It reflects
   the members present when it crossed the threshold; a cluster that later grows
   to 30 issues still carries the advice written at 3. `issues` and the payload's
@@ -199,13 +209,23 @@ Signal for deeper root problems: a short MTBF for a cluster means the same thing
 keeps breaking.
 
 ```
-For a group g (category|location|equipment), order issues by created_at:
-MTBF(g) = mean(created_at[i+1] - created_at[i])        # requires ≥ 2 issues
+For a group g (category|location|equipment), take one issue per duplicate group
+(the oldest member), order by created_at:
+MTBF(g) = mean(created_at[i+1] - created_at[i])        # requires ≥ 2 failures
 ```
 
 Reported in days, grouped by `category`, `building`, `floor`, or `equipment`.
 Low MTBF + systemic flag ⇒ recommend preventive maintenance instead of repeat
 repairs.
+
+**Duplicates are collapsed first, because a duplicate is the same defect
+reported again, not the asset failing again.** Counting the confirmations
+collapses MTBF towards the reporting interval: four colleagues raising one warm
+FCU on consecutive days reads as an asset failing every day, which inverts the
+number's meaning — a well-reported fault looks like the least reliable asset in
+the building. The primary is the oldest member, the same choice
+`grouping.pick_primary` makes, so a group contributes exactly one failure at the
+time it was first reported.
 
 ### MTTR — Mean Time To Repair
 Signal on maintenance/vendor performance (speed; pair with proof-rejection rate
@@ -276,14 +296,47 @@ The gate has a known consequence: a gated issue stays at `triaged` with no work
 order of its own, and nothing closes it when the primary is resolved (see below).
 For the PoC an admin closes it via the status API.
 
+## Insights: the admin-facing read of all of the above
+
+`GET /analytics/insights` composes the four aggregates into one ranked list of
+recommendation cards, so an admin has a single screen to look at rather than
+four endpoints to correlate. Live findings sort above decayed ones, then by
+weight of evidence.
+
+| Card `kind` | Raised when | `action` is |
+|---|---|---|
+| `systemic` | a stored cluster still clears `SYSTEMIC_MIN_COUNT` in the window | the cluster's stored LLM recommendation |
+| `predictive` | a location's `trend_pct` ≥ 50% on ≥ 3 recent issues | templated: look for the single asset behind the rise |
+| `pre-emptive` | asset MTBF < 60 days on ≥ 3 failures; or a location's `repeat_rate` ≥ 0.5 on ≥ 3 recent issues; or an assignee's `proof_rejection_rate` ≥ 0.5 on ≥ 3 proofs | templated: root-cause inspection, standing fault, or send the evidence recommendation with the dispatch |
+
+Three properties are deliberate:
+
+- **`repeat_rate` cards are location-only.** For `by=category` the rate is
+  degenerate — the group *is* one category, so every issue after the first
+  counts (see Profiles) — and a card built on it would fire everywhere.
+- **No confidence score and no cost figure.** Nothing in the system produces
+  either. A card carries counts, rates and windows that a reader can follow back
+  to `linked[]`, which is the same argument as returning the cluster's evidence
+  rather than only its sentence.
+- **`filter` says how to find the card's issues** (`{search, category}`).
+  Stated server-side because this is the side that knows the group: a systemic
+  card's `id` is a cluster UUID, and `cluster_key` is not safely parseable back
+  into fields.
+
 ## Known gaps (as built)
 
-Recorded so they are not rediscovered during implementation. None is fixed.
+Recorded so they are not rediscovered during implementation.
 
-- **Nobody escalates a cluster.** Not a triage gap — triage's side is done, it
-  returns `systemic_payload` — but no other component reads it yet, so an admin
-  learns about a cluster only by opening a triaged issue or
-  `GET /analytics/systemic`. Deliberately left outside this service.
+- ~~**Nobody escalates a cluster.**~~ **Since addressed.**
+  `GET /analytics/insights` assembles clusters — alongside location trends,
+  asset MTBF and proof-rejection rates — into ranked recommendation cards, and
+  the frontend's AI insights page (admin) is their reader. An admin no longer
+  has to open a triaged issue or call `/analytics/systemic` to learn about one.
+  A card carries the cluster's stored recommendation as its action, its live and
+  at-detection counts as evidence, and `active: false` when the cluster has
+  stopped accruing members. Still no *push*: nothing publishes
+  `issue.escalated`, so this is a screen an admin visits, not a notification
+  that arrives.
 - **Duplicate groups do not resolve together.** `duplicate_group_id` now gates
   dispatch (above), but nothing closes the other members when the primary is
   resolved. A gated duplicate sits at `triaged` until an admin closes it by hand.
