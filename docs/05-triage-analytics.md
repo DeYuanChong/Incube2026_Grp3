@@ -19,7 +19,58 @@ Goal: surface deeper root problems that individual tickets hide.
    6 weeks — likely a shared ballast/circuit fault; inspect the distribution
    board rather than replacing tubes individually."*
 4. New issues landing in a flagged cluster get `systemic_flag=true` in their
-   triage result, which the admin sees on the triage board.
+   triage result and are **escalated to the admin** instead of being dispatched
+   automatically (below).
+
+## Systemic escalation → admin → maintainer
+
+A normal issue goes `triaged → work order` with no human gate: fixverify
+auto-creates the work order on `issue.triaged`. A **systemic** issue does not —
+the fix is likely not "repair this ticket", so an admin decides what the
+maintainer is actually asked to do.
+
+```mermaid
+sequenceDiagram
+    participant R as Reporter
+    participant T as Triage
+    participant A as Admin panel
+    participant F as Fix & Verify
+    participant M as Maintainer
+    R->>T: issue.created
+    T->>T: pipeline detects systemic cluster
+    T->>A: issue.escalated (brief + recommendation)
+    A->>A: admin edits the brief, or accepts as-is
+    A->>T: POST /triage/results/{id}/dispatch {brief}
+    T->>F: issue.dispatched → work order created
+    F->>M: assigned work order carries the brief
+```
+
+1. **Report** — reporter files the issue as usual.
+2. **Detect** — the triage pipeline flags the cluster as systemic
+   (`systemic_flag=true`, `systemic_cluster_id` set).
+3. **Escalate** — triage writes an `escalation_brief` on the triage result
+   (LLM: what the pattern is, the evidence — sibling issue ids, MTBF, count in
+   window — and the recommended action) and emits `issue.escalated`. The issue
+   sits at `triaged`; fixverify skips auto-creation while `systemic_flag` is set.
+   The admin panel lists it under **Escalations** with the cluster's other issues.
+4. **Admin decides** — one endpoint covers both branches:
+   `POST /triage/results/{issue_id}/dispatch {brief?}`.
+   - *Accept*: no `brief` in the body — the LLM's `escalation_brief` is sent
+     verbatim.
+   - *Adjust*: `brief` supplied — it overwrites `escalation_brief` (the LLM's
+     original stays in `systemic_clusters.recommendation`, so admin edit rate
+     is measurable the same way severity overrides are).
+   Either way the result records `dispatched_by` / `dispatched_at` and triage
+   emits `issue.dispatched`.
+5. **Maintainer works it** — fixverify creates the work order on
+   `issue.dispatched` and stores the brief as the work order's instruction, so
+   the maintainer sees "inspect the Level 3 distribution board", not "replace
+   the tube in room 3-12". From here the flow is the normal Fix & Verify path
+   (evidence recommendation, proof upload, verification).
+
+An admin can also close the escalation without dispatching (the systemic work is
+handled outside the ticket, e.g. a planned shutdown) — the issue keeps its normal
+lifecycle and the cluster stays flagged for the next report.
 
 ## Profiles
 
@@ -86,8 +137,15 @@ flowchart TD
     F --> G[Apply hard rules<br/>duplicates bump severity, security ≥ urgent, hazard keywords → emergency]
     G --> H[Store triage_result]
     H --> I[POST triage-result to reporting<br/>status → triaged, ETA recomputed]
-    I --> J[emit issue.triaged]
+    I --> K{systemic_flag?}
+    K -- no --> J[emit issue.triaged<br/>fixverify auto-creates work order]
+    K -- yes --> L[LLM escalation brief<br/>pattern + evidence + recommendation]
+    L --> M[emit issue.escalated<br/>admin panel Escalations queue]
+    M --> N[Admin accepts or edits the brief<br/>POST /triage/results/id/dispatch]
+    N --> O[emit issue.dispatched<br/>work order carries the brief]
 ```
 
 Admins can re-run the pipeline or override severity/urgency on the triage board;
-overrides are kept for measuring AI suggestion accuracy over time.
+overrides are kept for measuring AI suggestion accuracy over time. Systemic
+issues additionally wait on the admin dispatch step above before any work order
+exists.
