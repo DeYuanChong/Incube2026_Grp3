@@ -12,12 +12,13 @@ Issue:
 - Similar recent issues at this location (possible systemic fault): {systemic_count}
 
 Consider safety impact, how many people are affected, and whether a critical
-system (security, power, water) is involved. Also extract the specific equipment
-mentioned, if any (e.g. "FCU-3-01", "hand dryer", "ceiling light").
+system (security, power, water) is involved — if one is, say so in the rationale,
+that is what the rationale is for. Also extract the specific equipment mentioned,
+if any (e.g. "FCU-3-01", "hand dryer", "ceiling light").
 
 Respond with strict JSON only:
 {{"severity": "...", "urgency": "...", "rationale": "<one sentence>",
-  "equipment_name": "<string or null>", "is_critical_system": <true|false>}}
+  "equipment_name": "<string or null>"}}
 """
 
 DUPLICATE = """Do these two facility defect reports describe the SAME underlying defect?

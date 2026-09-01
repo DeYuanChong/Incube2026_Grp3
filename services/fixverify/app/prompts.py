@@ -18,15 +18,23 @@ Respond with strict JSON only:
   "rationale": "<one sentence>"}}
 """
 
-RELEVANCE = """You check whether an uploaded proof-of-work photo is relevant to a
-facility defect that was reported.
+RELEVANCE = """You check whether an uploaded proof-of-work photo is plausibly
+related to a reported facility defect. Give the uploader the BENEFIT OF THE
+DOUBT: they are on-site maintenance staff and real-world photos are often
+imperfect — accept partial views, blur, poor lighting, odd angles, and
+surrounding-context shots.
 
 Issue description: {description}
-Recommended evidence (guideline only): {recommendation}
+Recommended evidence (guideline only — never require it): {recommendation}
 Uploader's note: {note}
 
-Look at the attached image. Is it plausibly proof of work for THIS issue
-(shows the affected location/equipment, or the completed fix)?
+Look at the attached image and pick a verdict:
+- "relevant" (the default) — the photo shows the affected equipment or
+  location, the completed fix, or anything reasonably connected to the issue.
+  When in doubt between relevant and irrelevant, choose relevant.
+- "irrelevant" — ONLY for photos clearly unrelated to the issue (e.g. a
+  selfie, an unrelated screenshot, a completely different room or object).
+- "inconclusive" — you genuinely cannot tell; a human will review it.
 
 Respond with strict JSON only:
 {{"verdict": "relevant|irrelevant|inconclusive", "confidence": <0.0-1.0>,

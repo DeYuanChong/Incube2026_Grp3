@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 
 from . import analytics, config, pipeline
 from .db import engine, get_session, init_db
-from .models import SystemicCluster, TriageResult
+from .models import TriageResult
 
 log = logging.getLogger(__name__)
 app = FastAPI(title="Triage Service", version="0.1.0")
@@ -27,15 +27,15 @@ def health():
     return {"service": "triage", "status": "ok"}
 
 
-@app.post("/triage/run/{issue_id}")
+@app.post("/run/{issue_id}")
 def run_triage(issue_id: str, session: Session = Depends(get_session)):
     try:
-        return pipeline.run_triage(session, issue_id)
+        return pipeline.to_response(session, pipeline.run_triage(session, issue_id))
     except httpx.HTTPError as exc:
         raise HTTPException(502, f"could not fetch issue from reporting: {exc}")
 
 
-@app.get("/triage/results/{issue_id}")
+@app.get("/results/{issue_id}")
 def get_result(issue_id: str, session: Session = Depends(get_session)):
     result = session.exec(
         select(TriageResult)
@@ -44,7 +44,7 @@ def get_result(issue_id: str, session: Session = Depends(get_session)):
     ).first()
     if not result:
         raise HTTPException(404, "no triage result for this issue")
-    return result
+    return pipeline.to_response(session, result)
 
 
 class ConfirmRequest(BaseModel):
@@ -52,7 +52,7 @@ class ConfirmRequest(BaseModel):
     urgency: str | None = None
 
 
-@app.post("/triage/results/{issue_id}/confirm")
+@app.post("/results/{issue_id}/confirm")
 def confirm_result(
     issue_id: str,
     body: ConfirmRequest,
@@ -84,14 +84,15 @@ def confirm_result(
     except httpx.HTTPError:
         raise HTTPException(502, "confirmed locally but failed to update reporting")
     session.refresh(result)
-    return result
+    return pipeline.to_response(session, result)
 
 
 @app.get("/analytics/systemic")
 def systemic(session: Session = Depends(get_session)):
-    return session.exec(
-        select(SystemicCluster).order_by(SystemicCluster.issue_count.desc())  # type: ignore[attr-defined]
-    ).all()
+    """Clusters ranked by how many members they have *now*, not by the peak the
+    detector last recorded — a remediated cluster stops accruing members and
+    drops off the list instead of topping it forever."""
+    return analytics.systemic_clusters(session)
 
 
 @app.get("/analytics/metrics")
@@ -115,7 +116,7 @@ def vendor_performance(session: Session = Depends(get_session)):
 @app.get("/analytics/profiles")
 def get_profiles(
     session: Session = Depends(get_session),
-    by: str = Query("location", pattern="^(location|category)$"),
+    by: str = Query("location", pattern="^(location|category|equipment)$"),
 ):
     return analytics.profiles(session, by)
 
@@ -142,7 +143,11 @@ def _handle_event(event: dict) -> None:
         try:
             if event_type == "issue.created" and issue_id:
                 pipeline.run_triage(session, issue_id)
-            elif event_type == "issue.closed" and issue_id:
+            # Both mean "the issue's state moved"; the fact is re-synced whole
+            # either way. Without status_changed a cancelled or reopened issue
+            # stays "reported" in the snapshot, where it goes on counting as an
+            # open duplicate candidate and a live cluster member.
+            elif event_type in ("issue.closed", "issue.status_changed") and issue_id:
                 resp = httpx.get(f"{config.REPORTING_URL}/issues/{issue_id}", timeout=10)
                 resp.raise_for_status()
                 pipeline.sync_issue_fact(session, resp.json()["issue"])

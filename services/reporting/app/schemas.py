@@ -33,7 +33,9 @@ class TriageResultIn(BaseModel):
     equipment_name: str | None = None
     duplicate_group_id: str | None = None
     duplicate_count: int | None = None
-    is_critical_system: bool = False
+    # No longer a triage output (it lives in severity_rationale, docs/05); kept
+    # optional so an admin-set value survives a re-triage instead of being reset.
+    is_critical_system: bool | None = None
 
 
 class StatusChange(BaseModel):
