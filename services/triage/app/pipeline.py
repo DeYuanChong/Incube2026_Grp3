@@ -74,19 +74,29 @@ def _find_duplicate(session: Session, fact: IssueFact) -> tuple[str | None, floa
     return None, 0.0, group_size
 
 
-def _systemic_check(session: Session, fact: IssueFact) -> SystemicCluster | None:
-    key = _cluster_key(fact)
+def _cluster_members(session: Session, fact: IssueFact) -> list[IssueFact]:
+    """Issues sharing this issue's cluster key, inside the systemic window.
+
+    Asked fresh on every call, so it is a live view: the window slides, and a
+    cluster flagged months ago reports the members it has now rather than the
+    count it was flagged on. `SystemicCluster.issue_count` keeps that number.
+    """
     cutoff = (
         datetime.now(timezone.utc) - timedelta(days=config.SYSTEMIC_WINDOW_DAYS)
     ).isoformat()
-    members = session.exec(
+    return list(session.exec(
         select(IssueFact).where(
             IssueFact.category == fact.category,
             IssueFact.building == fact.building,
             IssueFact.floor == fact.floor,
             IssueFact.created_at >= cutoff,
-        )
-    ).all()
+        ).order_by(IssueFact.created_at)  # type: ignore[arg-type]
+    ).all())
+
+
+def _systemic_check(session: Session, fact: IssueFact) -> SystemicCluster | None:
+    key = _cluster_key(fact)
+    members = _cluster_members(session, fact)
     if len(members) < config.SYSTEMIC_MIN_COUNT:
         return None
     cluster = session.exec(
@@ -106,17 +116,41 @@ def _systemic_check(session: Session, fact: IssueFact) -> SystemicCluster | None
     return cluster
 
 
+def _member_summary(fact: IssueFact) -> dict:
+    """What an admin needs to judge whether the cluster really is one fault."""
+    return {
+        "issue_id": fact.issue_id,
+        "reference_no": fact.reference_no,
+        "created_at": fact.created_at,
+        "status": fact.status,
+        "severity": fact.severity,
+        "description": fact.description[:150],
+    }
+
+
 def to_response(session: Session, result: TriageResult) -> dict:
     """The endpoint's singular result: the stored row plus the nullable
-    cluster-level payload it belongs to."""
+    cluster-level payload it belongs to.
+
+    The member list is read through the issue's own fact rather than by
+    splitting `cluster_key`, which is not safely parseable — a building or
+    floor containing "|" would split into the wrong three parts.
+    """
     cluster = (
         session.get(SystemicCluster, result.systemic_cluster_id)
         if result.systemic_cluster_id
         else None
     )
+    issues: list[dict] = []
+    if cluster:
+        fact = session.get(IssueFact, result.issue_id)
+        # ponytail: whole cluster, uncapped — a 90-day window in a busy building
+        # can return a long list. Paginate off cluster_id if that bites.
+        issues = [_member_summary(m) for m in _cluster_members(session, fact)] if fact else []
     return payload.with_systemic(
         result.model_dump(),
         cluster.model_dump() if cluster else None,
+        issues,
         config.SYSTEMIC_WINDOW_DAYS,
     )
 

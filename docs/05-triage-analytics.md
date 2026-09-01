@@ -49,9 +49,25 @@ cluster has a recommendation to give:
   "cluster_key": "lighting|Block A|L3",
   "issue_count": 4,
   "window_days": 90,
-  "recommendation": "Four lighting failures on Block A Level 3 in six weeks point at a shared ballast or circuit fault; inspect the distribution board rather than replacing tubes individually."
+  "recommendation": "Four lighting failures on Block A Level 3 in six weeks point at a shared ballast or circuit fault; inspect the distribution board rather than replacing tubes individually.",
+  "issues": [
+    {"issue_id": "…", "reference_no": "ISS-0041", "created_at": "2026-07-19T…",
+     "status": "closed", "severity": "medium", "description": "Corridor light flickering outside room 3-12"},
+    {"issue_id": "…", "reference_no": "ISS-0052", "created_at": "2026-08-04T…",
+     "status": "closed", "severity": "low", "description": "Two tubes out near the lift lobby"},
+    {"issue_id": "…", "reference_no": "ISS-0067", "created_at": "2026-08-21T…",
+     "status": "in_progress", "severity": "medium", "description": "Lights out again on L3 east"},
+    {"issue_id": "…", "reference_no": "ISS-0074", "created_at": "2026-09-01T…",
+     "status": "triaged", "severity": "medium", "description": "Ceiling light not working in the L3 corridor"}
+  ]
 }
 ```
+
+`issues` is the evidence behind the sentence. A count on its own is
+unfalsifiable — an admin told "4 lighting failures" cannot see whether those are
+one ballast or four unrelated fittings, and equipment is deliberately not part of
+the cluster key, so that is exactly the judgement they are left to make. Each
+member carries enough to make it and no more.
 
 Why a nullable second key rather than more columns on the row:
 
@@ -69,9 +85,17 @@ Why a nullable second key rather than more columns on the row:
   yet reports the first and `null` for the second, rather than a shell with an
   empty `recommendation` (`app/payload.py::with_systemic` holds that rule and
   its self-check: `python3 payload.py`).
-- **Nothing is stored twice.** The payload is composed at serialization time
-  from the `systemic_clusters` row that `systemic_cluster_id` already points at.
-  It is therefore as-of the cluster's `updated_at`, and costs no new column.
+- **Nothing is stored twice.** The payload is composed at serialization time:
+  the recommendation from the `systemic_clusters` row `systemic_cluster_id`
+  already points at, the members from a fresh query on the same cluster key.
+  No new column, and no second copy to drift.
+- **The count *is* the list.** `issue_count` in the payload is `len(issues)`
+  from that one query, so the number and the evidence cannot disagree. It is a
+  live view: the 90-day window slides, so a cluster reports the members it has
+  now, and one whose window has rolled off reports fewer than the
+  `SYSTEMIC_MIN_COUNT` that flagged it. `SystemicCluster.issue_count` keeps the
+  detector's number and is what `GET /analytics/systemic` shows — the two
+  answer different questions and are expected to diverge.
 
 ### `is_critical_system` is not a triage output
 
@@ -104,15 +128,18 @@ cluster is stored:
   next member rather than escalating a half-empty cluster — which is also why
   `systemic_payload` is null until the recommendation lands.
 - **The payload is cluster-shaped, not issue-shaped**: `cluster_id`,
-  `cluster_key`, `issue_count`, `window_days`, `recommendation`. There is no
-  `issue_id` — no issue exists for the *cluster* — so any consumer keyed on
-  `payload.issue_id` needs its own case.
+  `cluster_key`, `issue_count`, `window_days`, `recommendation`, `issues`.
+  There is no top-level `issue_id` — no issue exists for the *cluster* — so any
+  consumer keyed on `payload.issue_id` needs its own case. `issues[]` carries
+  the members, which is what a notification would link to.
 - **Nothing new to read from.** `GET /analytics/systemic` already returns every
   cluster with its recommendation.
 - **A cluster's recommendation is written once and not refreshed.** It reflects
   the members present when it crossed the threshold; a cluster that later grows
-  to 30 issues still carries the advice written at 3. `issue_count` and
-  `last_seen` do keep updating, so the count and the prose can disagree.
+  to 30 issues still carries the advice written at 3. `issues` and the payload's
+  `issue_count` are live, so a reader can at least see that the prose is out of
+  date — which is half the point of returning the evidence and not only the
+  sentence.
 
 If the admin acts on a cluster by filing an ordinary issue, that issue lands in
 the same cluster it came from, inflating `issue_count` by one and slightly
@@ -273,7 +300,8 @@ stored `triage.results` row serialized whole, plus the cluster payload:
     "cluster_key": "lighting|Block A|L3",
     "issue_count": 4,
     "window_days": 90,
-    "recommendation": "Four lighting failures on Block A Level 3 in six weeks point at a shared ballast or circuit fault; inspect the distribution board rather than replacing tubes individually."
+    "recommendation": "Four lighting failures on Block A Level 3 in six weeks point at a shared ballast or circuit fault; inspect the distribution board rather than replacing tubes individually.",
+    "issues": ["… the four members, oldest first, as shown above …"]
   }
 }
 ```
@@ -296,6 +324,9 @@ Side effects of that single call:
 5. Nothing is published. The recommendation this run wrote leaves in the
    response, as `systemic_payload` above, and nowhere else.
 
-Note `systemic_payload` is not a column on `triage.results`; it is read from
-`triage.systemic_clusters` when the result is serialized, so the same call
-tomorrow returns the same row with a fresher cluster count.
+Note `systemic_payload` is not a column on `triage.results`. Its recommendation
+is read from `triage.systemic_clusters` and its members from a fresh query when
+the result is serialized, so the same `GET` tomorrow returns the same immutable
+row with a current member list — including the fifth report, if one arrives
+tonight. `triage.systemic_clusters.issue_count` still reads 4: that is what the
+detector saw.
