@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Route, Routes } from 'react-router-dom'
+import { Navigate, NavLink, Route, Routes } from 'react-router-dom'
 import { api, getIdentity, setIdentity } from './api'
 import Dashboard from './pages/Dashboard'
 import FixVerify from './pages/FixVerify'
@@ -7,6 +7,14 @@ import IssueDetail from './pages/IssueDetail'
 import Notifications from './pages/Notifications'
 import ReportIssue from './pages/ReportIssue'
 import TriageBoard from './pages/TriageBoard'
+
+// Guards a route to a set of roles. If the active identity's role isn't
+// (or is no longer, e.g. after switching in the RolePicker) allowed here,
+// bounce back to the Dashboard rather than leaving stale, inaccessible
+// content on screen.
+function RequireRole({ role, allowed, children }) {
+  return allowed.includes(role) ? children : <Navigate to="/" replace />
+}
 
 // Demo mode: no login — pick who you are (docs/01-architecture.md).
 function RolePicker({ identity, onChange }) {
@@ -64,11 +72,33 @@ export default function App() {
       </nav>
       <Routes>
         <Route path="/" element={<Dashboard />} />
-        <Route path="/report" element={<ReportIssue />} />
+        <Route
+          path="/report"
+          element={
+            <RequireRole role={role} allowed={['reporter']}>
+              <ReportIssue />
+            </RequireRole>
+          }
+        />
         <Route path="/issues/:id" element={<IssueDetail />} />
-        <Route path="/triage" element={<TriageBoard />} />
-        <Route path="/fix-verify" element={<FixVerify />} />
+        <Route
+          path="/triage"
+          element={
+            <RequireRole role={role} allowed={['admin']}>
+              <TriageBoard />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/fix-verify"
+          element={
+            <RequireRole role={role} allowed={['maintenance', 'admin']}>
+              <FixVerify />
+            </RequireRole>
+          }
+        />
         <Route path="/notifications" element={<Notifications />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
   )

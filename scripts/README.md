@@ -91,10 +91,10 @@ closure never precedes recovery.
 **Not populated** — `severity`, `urgency`, `triaged_at` (triage never ran on
 this data), `duplicate_group_id` on both the issue and its fact (the source's
 Related Job Request NO. is strictly 1:1 — 426 filled, 426 distinct — so there
-are no duplicate groups to carry over), `estimated_resolution_days`,
-and `resolution_type` (90% blank at source, and 227 of the 231 filled values are
-"Others"). `is_critical_system` is `False` everywhere — only 9 source rows carry
-it, and nothing in the app reads the field today.
+are no duplicate groups to carry over), and `resolution_type` (90% blank at
+source, and 227 of the 231 filled values are "Others"). `is_critical_system`
+is `False` everywhere — only 9 source rows carry it, and nothing in the app
+reads the field today.
 
 **Not imported** — `triage.systemic_clusters` and `fixverify.*`. Systemic
 clustering is a separate LLM pass (`pipeline.py:_systemic_check`) whose window
