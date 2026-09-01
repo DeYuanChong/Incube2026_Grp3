@@ -20,10 +20,68 @@ Goal: surface deeper root problems that individual tickets hide.
    6 weeks — likely a shared ballast/circuit fault; inspect the distribution
    board rather than replacing tubes individually."*
 4. New issues landing in a flagged cluster get `systemic_flag=true` in their
-   triage result and continue their normal lifecycle. The cluster's
+   triage result and continue their normal lifecycle. The recommendation itself
+   never enters the issue's own fields — it comes back beside them in
+   `systemic_payload` (next section). The cluster's
    `issue_count` and `last_seen` are refreshed on every run, so both are
    as-of `updated_at`, not live — a cluster whose window has rolled off keeps
    its last computed count until a new member arrives.
+
+## One issue in, one result out
+
+Triage answers exactly one question per call: *what happens to this issue.*
+`POST /triage/run/{issue_id}`, `GET /triage/results/{issue_id}` and
+`POST /triage/results/{issue_id}/confirm` all return the same single object —
+the stored `triage.results` row plus one extra key.
+
+| Part of the result | Scope | Read by |
+|---|---|---|
+| `suggested_severity`, `suggested_urgency`, `severity_rationale`, `equipment_extracted`, `duplicate_of_issue_id`, `duplicate_confidence` | this issue | reporting / fixverify — it drives the work order |
+| `systemic_flag`, `systemic_cluster_id` | this issue's membership | triage — a pointer, not a finding |
+| `systemic_payload` | the cluster this issue landed in | the admin — a planning decision, not a repair |
+
+`systemic_payload` is `null` in the ordinary case, and cluster-shaped when the
+cluster has a recommendation to give:
+
+```json
+"systemic_payload": {
+  "cluster_id": "e41c8d70-55a2-4f19-b3c6-7d9e0a1f2b48",
+  "cluster_key": "lighting|Block A|L3",
+  "issue_count": 4,
+  "window_days": 90,
+  "recommendation": "Four lighting failures on Block A Level 3 in six weeks point at a shared ballast or circuit fault; inspect the distribution board rather than replacing tubes individually."
+}
+```
+
+Why a nullable second key rather than more columns on the row:
+
+- **Different subject.** Every other field describes one defect at one location.
+  The recommendation describes a *group* of them and is identical for every
+  member of the cluster — flattening it onto each issue copies one finding N
+  times and invites N repairs of one root cause.
+- **Different reader.** The issue fields are consumed by the dispatch path,
+  which fixes a ticket. The payload is consumed by an admin, who decides whether
+  to plan preventive work. A caller that only dispatches ignores one key instead
+  of unpicking a blended object.
+- **Null is an answer, not a missing field.** `systemic_flag` says *this issue
+  sits in a flagged cluster*; `systemic_payload` says *and here is what to do
+  about the cluster*. A cluster flagged this run whose LLM call has not landed
+  yet reports the first and `null` for the second, rather than a shell with an
+  empty `recommendation` (`app/payload.py::with_systemic` holds that rule and
+  its self-check: `python3 payload.py`).
+- **Nothing is stored twice.** The payload is composed at serialization time
+  from the `systemic_clusters` row that `systemic_cluster_id` already points at.
+  It is therefore as-of the cluster's `updated_at`, and costs no new column.
+
+### `is_critical_system` is not a triage output
+
+Whether a critical system (security, power, water) is involved is a *reason for
+the severity*, not a parallel verdict: the LLM is asked to state it in
+`severity_rationale`, where the admin reads it, instead of returning a second
+boolean that no rule consumed and that never appeared on `triage.results`
+anyway. Triage no longer sends it in the write-back; reporting still has the
+column and now leaves it alone unless a caller sets it explicitly, so an
+admin-set value survives a re-triage.
 
 ## Systemic escalation (admin-raised issue)
 
@@ -54,9 +112,11 @@ sequenceDiagram
   (`if not cluster.recommendation`). No new column, and a failed LLM call simply
   retries on the next member rather than emitting a half-empty notification.
 - **Payload is cluster-shaped**, not issue-shaped: `cluster_id`, `cluster_key`,
-  `issue_count`, `window_days`, `recommendation`. There is no `issue_id` at this
-  point — nothing exists in reporting — so the notification service needs its own
-  case rather than the `payload.issue_id` fallback the other rules share.
+  `issue_count`, `window_days`, `recommendation` — the same object, from the
+  same builder, that the triaged issue got back as its `systemic_payload`. There
+  is no `issue_id` at this point — nothing exists in reporting — so the
+  notification service needs its own case rather than the `payload.issue_id`
+  fallback the other rules share.
 - **No new endpoint.** `GET /analytics/systemic` already returns clusters with
   their recommendations; the notification points the admin at it.
 - **Accepted cost**: the admin's issue lands in the same cluster it came from,
@@ -144,7 +204,11 @@ Recorded so they are not rediscovered during implementation. Neither is fixed.
 - **`issue.escalated` is not emitted yet.** The section above describes the
   intended behaviour; `pipeline._systemic_check` writes `cluster.recommendation`
   but publishes nothing, and `notification/app/rules.py` has no case for the
-  event. This is the next piece of work, and it is the whole of it.
+  event. What is built is the payload itself — every triage result in a flagged
+  cluster now returns it — so the remaining work is the publish call and the
+  notification rule, with nothing left to design about the shape. Until then an
+  admin sees a cluster by opening a triaged issue or `GET /analytics/systemic`,
+  not by being told.
 - **Duplicate groups do not resolve together.** `duplicate_group_id` now gates
   dispatch (above), but nothing closes the other members when the primary is
   resolved. A gated duplicate sits at `triaged` until an admin closes it by hand.
@@ -168,10 +232,15 @@ flowchart TD
     E --> K{cluster newly systemic?<br/>no recommendation yet}
     K -- yes --> L[LLM writes cluster recommendation]
     L --> M[emit issue.escalated<br/>→ one admin notification]
+    H --> N[Response: result row<br/>+ systemic_payload or null]
+    E -.->|cluster row, if any| N
 ```
 
 The escalation branch is a side effect, not a gate: the triggering issue proceeds
-down `I → J` regardless, and nothing in the pipeline waits on the admin. Any
+down `I → J` regardless, and nothing in the pipeline waits on the admin. The
+dotted edge is serialization, not a step — the payload is read back out of the
+cluster row when the response is built, whether or not this run wrote it, so an
+issue triaged into a long-standing cluster returns one too. Any
 issue the admin subsequently files re-enters at `A` as an ordinary
 `issue.created`.
 
@@ -183,7 +252,7 @@ appends another `triage.results` row rather than replacing the previous one.
 
 `POST /api/triage/run/{issue_id}` for the 4th lighting report on Block A / L3 —
 the run that tips the cluster over `SYSTEMIC_MIN_COUNT`. The response is the
-stored `triage.results` row, serialized whole:
+stored `triage.results` row serialized whole, plus the cluster payload:
 
 ```json
 {
@@ -191,7 +260,7 @@ stored `triage.results` row, serialized whole:
   "issue_id": "3f9a7c02-1b4d-4e88-9a10-2c6d5b8e4f31",
   "suggested_severity": "medium",
   "suggested_urgency": "routine",
-  "severity_rationale": "A corridor light out affects circulation but poses no safety or security risk.",
+  "severity_rationale": "A corridor light out affects circulation but involves no critical system and poses no safety or security risk.",
   "equipment_extracted": "ceiling light",
   "duplicate_of_issue_id": null,
   "duplicate_confidence": null,
@@ -200,9 +269,20 @@ stored `triage.results` row, serialized whole:
   "admin_confirmed": false,
   "admin_override_severity": null,
   "admin_override_urgency": null,
-  "created_at": "2026-09-01T04:12:33.481920+00:00"
+  "created_at": "2026-09-01T04:12:33.481920+00:00",
+  "systemic_payload": {
+    "cluster_id": "e41c8d70-55a2-4f19-b3c6-7d9e0a1f2b48",
+    "cluster_key": "lighting|Block A|L3",
+    "issue_count": 4,
+    "window_days": 90,
+    "recommendation": "Four lighting failures on Block A Level 3 in six weeks point at a shared ballast or circuit fault; inspect the distribution board rather than replacing tubes individually."
+  }
 }
 ```
+
+The issue's own answer is unchanged by the cluster: it is still a `medium` /
+`routine` corridor light, and it is dispatched as one. The fourth report is what
+made the cluster worth a recommendation, not what made the ticket worse.
 
 Side effects of that single call:
 
@@ -213,12 +293,13 @@ Side effects of that single call:
 3. `triage.results` — the row above, appended.
 4. `POST /issues/{id}/triage-result` to reporting:
    `{"severity": "medium", "urgency": "routine", "equipment_name": "ceiling light",
-   "duplicate_group_id": null, "duplicate_count": 1, "is_critical_system": false}`.
-   A failure here is logged, not raised — the local result stands even if the
-   write-back does not.
-5. `issue.escalated` published, because this run wrote `recommendation`:
+   "duplicate_group_id": null, "duplicate_count": 1}`. A failure here is logged,
+   not raised — the local result stands even if the write-back does not.
+5. `issue.escalated` published, because this run wrote `recommendation`
+   (designed, not built — see Known gaps):
    `{"cluster_id": "e41c8d70-…", "cluster_key": "lighting|Block A|L3",
    "issue_count": 4, "window_days": 90, "recommendation": "…"}`.
 
-Note `is_critical_system` is produced by the LLM and forwarded to reporting but
-is **not** a column on `triage.results`, so it does not appear in the response.
+Note `systemic_payload` is not a column on `triage.results`; it is read from
+`triage.systemic_clusters` when the result is serialized, so the same call
+tomorrow returns the same row with a fresher cluster count.

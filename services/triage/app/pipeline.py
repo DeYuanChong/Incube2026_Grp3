@@ -2,6 +2,9 @@
 
 fetch issue → sync fact → duplicate detection → systemic check →
 LLM severity suggestion → hard rules → store result → write back to reporting.
+
+One run answers one question — what happens to this issue. Whatever the run
+learned about the issue's cluster leaves separately, in `systemic_payload`.
 """
 
 import logging
@@ -11,7 +14,7 @@ import httpx
 from sqlalchemy import text
 from sqlmodel import Session, select
 
-from . import ai_client, config
+from . import ai_client, config, payload
 from .models import IssueFact, SystemicCluster, TriageResult, now_iso
 
 log = logging.getLogger(__name__)
@@ -101,6 +104,21 @@ def _systemic_check(session: Session, fact: IssueFact) -> SystemicCluster | None
     return cluster
 
 
+def to_response(session: Session, result: TriageResult) -> dict:
+    """The endpoint's singular result: the stored row plus the nullable
+    cluster-level payload it belongs to."""
+    cluster = (
+        session.get(SystemicCluster, result.systemic_cluster_id)
+        if result.systemic_cluster_id
+        else None
+    )
+    return payload.with_systemic(
+        result.model_dump(),
+        cluster.model_dump() if cluster else None,
+        config.SYSTEMIC_WINDOW_DAYS,
+    )
+
+
 def _apply_hard_rules(suggestion: dict, fact: IssueFact, duplicate_count: int) -> dict:
     """Rules win over the LLM (docs/04-ai-integration.md §3)."""
     order = config.SEVERITY_ORDER
@@ -157,7 +175,6 @@ def run_triage(session: Session, issue_id: str) -> TriageResult:
                 "equipment_name": result.equipment_extracted,
                 "duplicate_group_id": duplicate_of,
                 "duplicate_count": dup_count if duplicate_of else 1,
-                "is_critical_system": suggestion["is_critical_system"],
             },
             timeout=10,
         ).raise_for_status()

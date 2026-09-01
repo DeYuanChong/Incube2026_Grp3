@@ -204,7 +204,8 @@ def apply_triage_result(
         raise HTTPException(404, "issue not found")
     issue.severity = body.severity
     issue.urgency = body.urgency
-    issue.is_critical_system = body.is_critical_system
+    if body.is_critical_system is not None:
+        issue.is_critical_system = body.is_critical_system
     if body.equipment_name:
         issue.equipment_name = body.equipment_name
     if body.duplicate_group_id:

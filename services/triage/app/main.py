@@ -30,7 +30,7 @@ def health():
 @app.post("/triage/run/{issue_id}")
 def run_triage(issue_id: str, session: Session = Depends(get_session)):
     try:
-        return pipeline.run_triage(session, issue_id)
+        return pipeline.to_response(session, pipeline.run_triage(session, issue_id))
     except httpx.HTTPError as exc:
         raise HTTPException(502, f"could not fetch issue from reporting: {exc}")
 
@@ -44,7 +44,7 @@ def get_result(issue_id: str, session: Session = Depends(get_session)):
     ).first()
     if not result:
         raise HTTPException(404, "no triage result for this issue")
-    return result
+    return pipeline.to_response(session, result)
 
 
 class ConfirmRequest(BaseModel):
@@ -84,7 +84,7 @@ def confirm_result(
     except httpx.HTTPError:
         raise HTTPException(502, "confirmed locally but failed to update reporting")
     session.refresh(result)
-    return result
+    return pipeline.to_response(session, result)
 
 
 @app.get("/analytics/systemic")
