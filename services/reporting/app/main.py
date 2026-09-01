@@ -112,6 +112,8 @@ def create_issue(
     session: Session = Depends(get_session),
     who: dict = Depends(caller),
 ):
+    if not body.ack_confirmed:
+        raise HTTPException(422, "acknowledgement is required")
     issue = Issue(
         **body.model_dump(),
         reference_no=_next_reference_no(session),
@@ -185,6 +187,12 @@ def list_issues(
         stmt = stmt.order_by(Issue.created_at.desc())  # type: ignore[attr-defined]
     stmt = stmt.limit(limit).offset(offset)
     return session.exec(stmt).all()
+
+
+@app.get("/issues/estimate")
+def estimate_issue(category: Category, session: Session = Depends(get_session)):
+    days, basis = estimator.estimate(category.value, None, _open_count(session))
+    return {"estimated_resolution_days": days, "estimate_basis": basis}
 
 
 @app.get("/issues/{issue_id}")

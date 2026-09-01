@@ -62,6 +62,8 @@ class Issue(SQLModel, table=True):
     floor: str
     room: str | None = None
     equipment_name: str | None = None
+    mobile_number: str
+    ack_confirmed: bool = False
     reporter_name: str
     status: Status = Field(default=Status.reported, index=True)
     severity: str | None = Field(default=None, index=True)  # low|medium|high|critical

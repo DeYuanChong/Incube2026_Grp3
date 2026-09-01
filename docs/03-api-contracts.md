@@ -11,8 +11,9 @@ service-local. Gateway mapping: `/api/reporting/*→:8001/*`, `/api/triage/*→:
 
 | Method & path | Purpose |
 |---|---|
-| `POST /issues` | Create issue. Body: `{category, title, description, building, floor, room?, equipment_name?}`. Runs AI categorization + ETA. Returns the issue incl. `ai_suggested_category` and `estimated_resolution_days`. Emits `issue.created`. |
+| `POST /issues` | Create issue. Body: `{category, title, description?, building, floor, room?, equipment_name?, mobile_number, ack_confirmed}`. `description` is optional; `ack_confirmed` must be `true` (422 otherwise). Runs AI categorization + ETA. Returns the issue incl. `ai_suggested_category` and `estimated_resolution_days`. Emits `issue.created`. |
 | `GET /issues` | List. Filters: `status`, `category`, `building`, `floor`, `reporter`, `q` (text), `limit`, `offset`. |
+| `GET /issues/estimate` | Query `category`. Pre-submit ETA preview using the same deterministic formula as creation (docs/04 §2), with live open-issue load; does not create an issue. |
 | `GET /issues/{id}` | Full issue + timeline (`issue_events`). |
 | `PATCH /issues/{id}` | Reporter edits (title/description/location) while `status=reported`. |
 | `POST /issues/{id}/accept-suggested-category` | Reporter accepts the AI category (`category_source=ai_accepted`). |

@@ -3,43 +3,84 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 
 const CATEGORIES = [
-  ['air_conditioning', 'Air-Conditioning'],
-  ['lighting', 'Lighting'],
-  ['cleanliness', 'Cleanliness'],
-  ['toilet', 'Toilet'],
-  ['physical_security', 'Physical Security'],
-  ['others', 'Others'],
+  ['air_conditioning', 'Air-Conditioning',
+    <><rect x="2.5" y="4" width="19" height="8.5" rx="2.5" /><path d="M6 8.2h12" /><path d="M7 16.5v2.6" /><path d="M12 16.5v3.6" /><path d="M17 16.5v2.6" /></>],
+  ['lighting', 'Lighting',
+    <><circle cx="12" cy="9.5" r="5.5" /><path d="M9.5 18h5" /><path d="M10.5 21h3" /></>],
+  ['cleanliness', 'Cleaning',
+    <><path d="M4 20h16" /><rect x="7.5" y="12" width="9" height="5" rx="1.6" /><path d="M12 12V3.5" /></>],
+  ['toilet', 'Toilet',
+    <><path d="M4 4v7.5a5.5 5.5 0 0 0 5.5 5.5h3A5.5 5.5 0 0 0 18 11.5" /><path d="M4 11.5h16" /><path d="M9 20.5h6" /></>],
+  ['physical_security', 'Physical Security',
+    <><path d="M12 3l7.5 3v5.5c0 4.4-3.1 8.2-7.5 9.5-4.4-1.3-7.5-5.1-7.5-9.5V6z" /><circle cx="12" cy="11" r="2" /></>],
+  ['others', 'Others',
+    <><circle cx="5.5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="18.5" cy="12" r="1.6" /></>],
 ]
+const LABELS = Object.fromEntries(CATEGORIES.map(([v, l]) => [v, l]))
+
+const ISSUE_TYPES = {
+  air_conditioning: ['Faulty', 'Leaking', 'Not cold', 'Weird noise'],
+  lighting: ['Faulty', 'Flickering', 'Too dim'],
+  cleanliness: ['Algae / cobweb / pests', 'Cleaning required', 'Dirty floor / window', 'Dry leaves'],
+  toilet: ['Choked / clogged', 'Dirty', 'Faulty / broken', 'Wet floor'],
+  physical_security: ['Door / gate faulty', 'Lock broken', 'Card reader faulty', 'CCTV faulty'],
+  others: ['Furniture', 'Signage', 'Lift', 'Water leak', 'Something else'],
+}
 
 export default function ReportIssue() {
   const navigate = useNavigate()
-  const [form, setForm] = useState({
-    category: 'others', title: '', description: '', building: '', floor: '', room: '',
-  })
-  const [photos, setPhotos] = useState([])        // File[]
+  const [step, setStep] = useState(1)
+  const [category, setCategory] = useState(null)
+  const [issueType, setIssueType] = useState('')
+  const [mobile, setMobile] = useState('')
+  const [building, setBuilding] = useState('')
+  const [floor, setFloor] = useState('')
+  const [room, setRoom] = useState('')
+  const [description, setDescription] = useState('')
+  const [ack, setAck] = useState(false)
+  const [photos, setPhotos] = useState([])
+  const [estimate, setEstimate] = useState(null)
   const [created, setCreated] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
+  const pickCategory = (cat) => {
+    setCategory(cat)
+    setIssueType('')
+    setStep(2)
+    api.estimateIssue(cat).then(setEstimate).catch(() => setEstimate(null))
+  }
 
   const onPickPhotos = (e) => {
     setPhotos([...photos, ...Array.from(e.target.files)])
-    e.target.value = ''  // allow re-picking the same file
+    e.target.value = ''
   }
   const removePhoto = (i) => setPhotos(photos.filter((_, idx) => idx !== i))
 
+  const ready = mobile.length >= 8 && building && floor && issueType && ack
+
   const submit = async (e) => {
     e.preventDefault()
+    if (!ready) return
     setBusy(true)
     setError('')
     try {
-      let issue = await api.createIssue({ ...form, room: form.room || null })
+      let issue = await api.createIssue({
+        category,
+        title: `${LABELS[category]} — ${issueType}`,
+        description,
+        building,
+        floor,
+        room: room || null,
+        mobile_number: `+65 ${mobile}`,
+        ack_confirmed: true,
+      })
       for (const file of photos) {
         const result = await api.uploadIssuePhoto(issue.id, file)
-        issue = result.issue   // reflects the latest recomputed suggestion state
+        issue = result.issue
       }
       setCreated(issue)
+      setStep(3)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -51,19 +92,18 @@ export default function ReportIssue() {
   const acceptTitle = async () => setCreated(await api.acceptSuggestedTitle(created.id))
   const acceptDescription = async () => setCreated(await api.acceptSuggestedDescription(created.id))
 
-  if (created) {
+  if (step === 3 && created) {
     const suggestsCategory =
       created.ai_suggested_category &&
       created.ai_suggested_category !== created.category &&
       created.category_source === 'user'
     return (
-      <div className="card">
+      <div className="card report-mobile">
         <h2>Issue {created.reference_no} submitted ✔</h2>
         <p>
           <strong>Estimated resolution: ~{created.estimated_resolution_days} days.</strong>
           <br />
-          <span className="hint">{created.estimate_basis} If this is something you could
-          fix yourself faster, self-resolving may be quicker.</span>
+          <span className="hint">{created.estimate_basis}</span>
         </p>
         {suggestsCategory && (
           <div className="suggestion">
@@ -100,29 +140,65 @@ export default function ReportIssue() {
     )
   }
 
+  if (step === 1) {
+    return (
+      <div className="card report-mobile">
+        <h2>What needs attention?</h2>
+        <p className="hint">Pick a category to get started. You can change it later.</p>
+        <div className="cat-grid">
+          {CATEGORIES.map(([v, l, icon]) => (
+            <button key={v} className="cat-card" onClick={() => pickCategory(v)}>
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   strokeWidth="1.6" strokeLinecap="round">{icon}</svg>
+              <span>{l}</span>
+            </button>
+          ))}
+        </div>
+        <div className="info-card">
+          For fire, flooding or anyone in danger, call the 24h hotline <strong>6555 0000</strong> instead
+          of filing a report.
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="card">
-      <h2>Report a defect</h2>
+    <div className="card report-mobile">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <button type="button" className="secondary" onClick={() => setStep(1)}>←</button>
+        <span className="cat-pill">{LABELS[category]}</span>
+      </div>
       <form onSubmit={submit}>
-        <label>Category</label>
-        <select value={form.category} onChange={set('category')}>
-          {CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
-        <label>Title</label>
-        <input required minLength={3} value={form.title} onChange={set('title')}
-               placeholder="e.g. Aircon not cold in meeting room" />
-        <label>Description (be specific — this drives smart categorization & triage)</label>
-        <textarea required minLength={10} rows={4} value={form.description}
-                  onChange={set('description')}
-                  placeholder="What is wrong, since when, how it affects you…" />
+        <label>Mobile number</label>
+        <div className="mobile-input">
+          <span>+65</span>
+          <input required value={mobile}
+                 onChange={(e) => setMobile(e.target.value.replace(/[^0-9 ]/g, '').slice(0, 9))}
+                 placeholder="9123 4567" inputMode="numeric" />
+        </div>
         <label>Building</label>
-        <input required value={form.building} onChange={set('building')} placeholder="Block A" />
+        <input required value={building} onChange={(e) => setBuilding(e.target.value)} placeholder="Block A" />
         <label>Floor</label>
-        <input required value={form.floor} onChange={set('floor')} placeholder="Level 3" />
-        <label>Room (optional)</label>
-        <input value={form.room} onChange={set('room')} placeholder="03-12" />
-        <label>Photos (optional)</label>
-        <input type="file" multiple accept="image/*" onChange={onPickPhotos} />
+        <input required value={floor} onChange={(e) => setFloor(e.target.value)} placeholder="Level 3" />
+        <label>Room or area (optional)</label>
+        <input value={room} onChange={(e) => setRoom(e.target.value)} placeholder="03-12" />
+        <label>What's the issue?</label>
+        <div className="chip-row">
+          {ISSUE_TYPES[category].map((t) => (
+            <button type="button" key={t} className={`chip${issueType === t ? ' active' : ''}`}
+                    onClick={() => setIssueType(t)}>{t}</button>
+          ))}
+        </div>
+        <label>Describe more (optional)</label>
+        <textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Help us find it, or tell us more." />
+        {estimate && (
+          <div className="info-card">
+            Current estimate: <strong>~{estimate.estimated_resolution_days} days.</strong> {estimate.estimate_basis}
+          </div>
+        )}
+        <label>Photo (optional)</label>
+        <input type="file" multiple accept="image/*" capture="environment" onChange={onPickPhotos} />
         {photos.length > 0 && (
           <div className="photo-preview-row">
             {photos.map((file, i) => (
@@ -133,8 +209,15 @@ export default function ReportIssue() {
             ))}
           </div>
         )}
+        <label className="ack-row" style={{ marginTop: 12 }}>
+          <input type="checkbox" style={{ width: 'auto', margin: 0 }} checked={ack}
+                 onChange={(e) => setAck(e.target.checked)} />
+          I acknowledge that my name will be recorded along with this report.
+        </label>
         {error && <p className="error">{error}</p>}
-        <button disabled={busy}>{busy ? 'Submitting…' : 'Submit report'}</button>
+        <button className="submit-btn" disabled={!ready || busy} style={{ marginTop: 14 }}>
+          {busy ? 'Submitting…' : ready ? 'Submit report' : 'Complete the form to submit'}
+        </button>
       </form>
     </div>
   )

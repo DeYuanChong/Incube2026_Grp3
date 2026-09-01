@@ -61,11 +61,13 @@ The reference is a facilities job-request export. We adapted it as follows:
 | `ai_category_confidence` | REAL, nullable | 0–1 |
 | `category_source` | TEXT | `user` \| `ai_accepted` |
 | `title` | TEXT | Short summary |
-| `description` | TEXT | Required, free text |
+| `description` | TEXT | Optional, free text |
 | `building` | TEXT | Required |
 | `floor` | TEXT | Required |
 | `room` | TEXT, nullable | Optional per requirements |
 | `equipment_name` | TEXT, nullable | Extracted by triage or entered by user |
+| `mobile_number` | TEXT | Required, reporter's contact number (demo: `+65`-prefixed) |
+| `ack_confirmed` | INTEGER bool | Reporter's consent that their name is recorded with the report |
 | `reporter_name` | TEXT | From `X-User` |
 | `status` | TEXT enum | `reported` `triaged` `in_progress` `pending_verification` `verified` `closed` `cancelled` |
 | `severity` | TEXT enum, nullable | `low` `medium` `high` `critical` (set at triage) |
