@@ -108,11 +108,41 @@ user uploads is still processed.
 - **Final say is always human**: AI relevance is a pre-filter; an admin performs
   the actual verification (`POST /proofs/{id}/human-verify`).
 
+## 7. Photo verification & recategorization (Reporting)
+
+- **When**: on `POST /issues/{id}/photos` (reporters can attach photos to
+  their own report while it is still `status=reported`; stored permanently,
+  sharing fixverify's `uploads` docker volume under an `issues/` subfolder).
+- **Call**: vision model with the image (base64 data URL) + the issue's
+  current category/title/description in one joint call. Output:
+  `{verdict: aligned|misaligned|inconclusive, confidence, reason,
+  suggested_category, suggested_title, suggested_description}`
+  (`suggested_*` only non-null when `verdict=misaligned` and confident).
+- **Combining signals — suggest-only, like category suggestion in §1**:
+  three signals feed the category suggestion — the issue's current category
+  (`U`), the pending text-only suggestion from §1 if any (`T`), and a
+  majority vote across all of the issue's photos (`P`; each photo votes for
+  the category it was checked against if `aligned`, or its
+  `suggested_category` if `misaligned` with a guess). If `P` disagrees with
+  `U` but agrees with `T`, the existing recategorize suggestion is
+  reinforced; if `P` instead agrees with `U` (backing the reporter against a
+  lone disagreeing text-only read), the recategorize banner is suppressed in
+  favor of a soft, non-actionable `photo_note`; a genuine three-way
+  disagreement falls back to trusting the text-only suggestion, logging the
+  conflict to the issue timeline for triage visibility only. Title/
+  description suggestions are independent of this vote — sourced from
+  whichever uploaded photo has the highest-confidence `misaligned` verdict.
+- **Never auto-rewrites**: exactly like accepting a category suggestion, the
+  reporter must explicitly accept via `POST /issues/{id}/accept-suggested-title`
+  or `.../accept-suggested-description`. Editing the issue's text clears any
+  pending photo-derived suggestions (they'd reference stale text).
+
 ## Prompt inventory
 
 | Prompt file | Service | Task |
 |---|---|---|
 | `reporting/app/prompts.py::CATEGORIZE` | reporting | category suggestion |
+| `reporting/app/prompts.py::VERIFY_PHOTO` | reporting | photo-vs-report verification |
 | `triage/app/prompts.py::SEVERITY` | triage | severity/urgency + equipment |
 | `triage/app/prompts.py::DUPLICATE` | triage | pairwise duplicate check |
 | `triage/app/prompts.py::SYSTEMIC` | triage | cluster maintenance recommendation |

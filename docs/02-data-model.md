@@ -84,6 +84,21 @@ The reference is a facilities job-request export. We adapted it as follows:
 ### `reporting.issue_events` (timeline shown on the dashboard)
 `id`, `issue_id` FK, `event_type`, `detail` (JSON), `actor`, `created_at`
 
+## `reporting.issue_photos` (photos attached to a report, docs/04 §7)
+`id`, `issue_id` FK, `file_path`, `uploaded_by`, `checked_against_category`
+(the category the issue had at the moment this photo was checked — needed
+to correctly recompute the majority-vote signal across photos), `ai_verdict`
+(`aligned` \| `misaligned` \| `inconclusive`), `ai_confidence`, `ai_reason`,
+`ai_suggested_category`, `ai_suggested_title`, `ai_suggested_description`,
+`created_at`. Files are stored under the same docker `uploads` volume
+fixverify's proofs use, in an `issues/` subfolder.
+
+`reporting.issues` also gains, alongside `ai_suggested_category`:
+`ai_suggested_title`, `ai_suggested_description` (photo-derived, suggest-only
+— same accept-then-clear pattern as category), `photo_note` (soft,
+non-actionable FYI text — no accept action), `photo_mismatch_reason`
+(rationale shown next to the title/description suggestion).
+
 ## Triage service — schema `triage`
 
 ### `triage.results`

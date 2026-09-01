@@ -41,6 +41,17 @@ export const api = {
   getIssue: (id) => request(`/api/reporting/issues/${id}`),
   acceptSuggestedCategory: (id) =>
     request(`/api/reporting/issues/${id}/accept-suggested-category`, { method: 'POST' }),
+  acceptSuggestedTitle: (id) =>
+    request(`/api/reporting/issues/${id}/accept-suggested-title`, { method: 'POST' }),
+  acceptSuggestedDescription: (id) =>
+    request(`/api/reporting/issues/${id}/accept-suggested-description`, { method: 'POST' }),
+  uploadIssuePhoto: (issueId, file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return request(`/api/reporting/issues/${issueId}/photos`, { method: 'POST', formData })
+  },
+  issuePhotoUrl: (issueId, photoId) =>
+    `${GATEWAY}/api/reporting/issues/${issueId}/photos/${photoId}/file`,
   closeIssue: (id, data) =>
     request(`/api/reporting/issues/${id}/close`, { method: 'POST', body: data }),
   statsLoad: () => request('/api/reporting/stats/load'),

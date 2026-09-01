@@ -16,6 +16,10 @@ service-local. Gateway mapping: `/api/reporting/*→:8001/*`, `/api/triage/*→:
 | `GET /issues/{id}` | Full issue + timeline (`issue_events`). |
 | `PATCH /issues/{id}` | Reporter edits (title/description/location) while `status=reported`. |
 | `POST /issues/{id}/accept-suggested-category` | Reporter accepts the AI category (`category_source=ai_accepted`). |
+| `POST /issues/{id}/accept-suggested-title` | Reporter accepts the photo-derived title suggestion. |
+| `POST /issues/{id}/accept-suggested-description` | Reporter accepts the photo-derived description suggestion. |
+| `POST /issues/{id}/photos` | Multipart `file`. Only while `status=reported`. Runs vision verification against the issue's current category/title/description (docs/04 §7); recomputes `ai_suggested_category`/`ai_suggested_title`/`ai_suggested_description`/`photo_note` across all of the issue's photos. Emits `issue.photo_uploaded`. |
+| `GET /issues/{id}/photos/{photo_id}/file` | Serve an uploaded photo. |
 | `POST /issues/{id}/triage-result` | **Internal (triage svc)**: `{severity, urgency, equipment_name?, duplicate_group_id?, duplicate_count?, is_critical_system?}` → status `triaged`, recomputes ETA, emits `issue.triaged` timeline entry. |
 | `POST /issues/{id}/status` | Transition: `{status, actor, detail?}`. Validated against the state machine. Emits `issue.status_changed`. |
 | `POST /issues/{id}/close` | `{closed_by: reporter\|auto\|admin, resolution_type?, resolution_notes?}` from `verified`. Emits `issue.closed`. |

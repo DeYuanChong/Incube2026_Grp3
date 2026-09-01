@@ -26,3 +26,9 @@ BASE_DAYS = {
     "others": 5.0,
 }
 SEVERITY_MULT = {"critical": 0.5, "high": 0.75, "medium": 1.0, "low": 1.5}
+
+# Photo upload — shares fixverify's "uploads" docker volume; photos live in
+# their own subfolder so the two services' files don't mix (docs/04 §7)
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", "data/uploads/issues")
+VLLM_VISION_MODEL = os.getenv("VLLM_VISION_MODEL", os.getenv("VLLM_TEXT_MODEL", ""))
+PHOTO_MISALIGN_CONFIDENCE = float(os.getenv("PHOTO_MISALIGN_CONFIDENCE", "0.6"))

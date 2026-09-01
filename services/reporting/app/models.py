@@ -71,6 +71,10 @@ class Issue(SQLModel, table=True):
     duplicate_count: int = 1
     estimated_resolution_days: float | None = None
     estimate_basis: str | None = None
+    ai_suggested_title: str | None = None
+    ai_suggested_description: str | None = None
+    photo_note: str | None = None
+    photo_mismatch_reason: str | None = None
     resolution_type: str | None = None
     resolution_notes: str | None = None
     cancellation_reason: str | None = None
@@ -93,4 +97,22 @@ class IssueEvent(SQLModel, table=True):
     event_type: str
     detail: str = "{}"  # JSON blob
     actor: str = "system"
+    created_at: str = Field(default_factory=now_iso)
+
+
+class IssuePhoto(SQLModel, table=True):
+    __tablename__ = "issue_photos"
+    __table_args__ = {"schema": "reporting"}
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    issue_id: str = Field(index=True, foreign_key="reporting.issues.id")
+    file_path: str
+    uploaded_by: str = "unknown"
+    checked_against_category: Category
+    ai_verdict: str | None = None  # aligned | misaligned | inconclusive
+    ai_confidence: float | None = None
+    ai_reason: str | None = None
+    ai_suggested_category: Category | None = None
+    ai_suggested_title: str | None = None
+    ai_suggested_description: str | None = None
     created_at: str = Field(default_factory=now_iso)

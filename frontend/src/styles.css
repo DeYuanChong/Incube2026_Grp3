@@ -55,3 +55,17 @@ th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #eee; }
   padding: 0.6rem 0.9rem; margin: 0.5rem 0;
 }
 .notif-unread { border-left: 4px solid #2244aa; }
+
+.photo-preview-row, .photo-gallery {
+  display: flex; flex-wrap: wrap; gap: 0.6rem; margin: 0.4rem 0 0.8rem;
+}
+.photo-preview {
+  position: relative; width: 84px; height: 84px;
+}
+.photo-preview img, .photo-gallery img {
+  width: 84px; height: 84px; object-fit: cover; border-radius: 8px; border: 1px solid #e2e4ee;
+}
+.photo-preview button {
+  position: absolute; top: -6px; right: -6px; width: 22px; height: 22px;
+  padding: 0; line-height: 1; border-radius: 50%; font-size: 0.7rem;
+}

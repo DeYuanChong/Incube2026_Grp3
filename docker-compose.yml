@@ -30,6 +30,7 @@ services:
     environment:
       GATEWAY_URL: http://gateway:8000
       DATABASE_URL: postgresql+psycopg://app:app@postgres:5432/defects
+    volumes: ["uploads:/app/data/uploads"]
     depends_on:
       postgres: { condition: service_healthy }
 
