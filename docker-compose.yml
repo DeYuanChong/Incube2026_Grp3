@@ -30,6 +30,7 @@ services:
     environment:
       GATEWAY_URL: http://gateway:8000
       DATABASE_URL: postgresql+psycopg://app:app@postgres:5432/defects
+    volumes: ["uploads:/app/data/uploads"]
     depends_on:
       postgres: { condition: service_healthy }
 
@@ -68,6 +69,11 @@ services:
   frontend:
     build: frontend
     ports: ["5173:5173"]
+    volumes:
+      # Bind-mount the source for live HMR; the anonymous volume keeps the
+      # image's node_modules from being shadowed by the host mount.
+      - ./frontend:/app
+      - /app/node_modules
     environment:
       VITE_GATEWAY_URL: http://localhost:8000
     depends_on: [gateway]

@@ -1,4 +1,5 @@
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, SQLModel, create_engine
 
 from .config import DATABASE_URL
@@ -6,11 +7,25 @@ from .config import DATABASE_URL
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 
+def _create_pg_trgm() -> None:
+    # pg_trgm powers the duplicate-detection similarity pre-filter (docs/05).
+    # `IF NOT EXISTS` is not atomic across concurrent connections: when
+    # sibling services (triage, reporting) boot together under docker compose,
+    # both can pass the existence check and race to insert into pg_extension,
+    # and the loser hits a UniqueViolation on pg_extension_name_index. Run it
+    # in its own transaction and treat that race as success — the extension is
+    # there once anyone wins.
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+    except IntegrityError:
+        pass
+
+
 def init_db() -> None:
     with engine.begin() as conn:
         conn.execute(text("CREATE SCHEMA IF NOT EXISTS triage"))
-        # pg_trgm powers the duplicate-detection similarity pre-filter (docs/05)
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+    _create_pg_trgm()
     SQLModel.metadata.create_all(engine)
     with engine.begin() as conn:
         # create_all creates missing tables and never ALTERs existing ones,

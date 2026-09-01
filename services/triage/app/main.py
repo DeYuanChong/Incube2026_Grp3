@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from . import analytics, config, pipeline
+from . import analytics, config, insights, pipeline
 from .db import engine, get_session, init_db
 from .models import TriageResult
 
@@ -87,38 +87,34 @@ def confirm_result(
     return pipeline.to_response(session, result)
 
 
-@app.get("/analytics/systemic")
-def systemic(session: Session = Depends(get_session)):
-    """Clusters ranked by how many members they have *now*, not by the peak the
-    detector last recorded — a remediated cluster stops accruing members and
-    drops off the list instead of topping it forever."""
-    return analytics.systemic_clusters(session)
-
-
-@app.get("/analytics/metrics")
-def metrics(
-    session: Session = Depends(get_session),
-    group_by: str = Query("category", pattern="^(category|building|floor|equipment)$"),
-):
-    return {
-        "group_by": group_by,
-        "mtbf": analytics.mtbf(session, group_by),
-        "mttr": analytics.mttr(session, group_by),
-    }
-
-
-@app.get("/analytics/vendor-performance")
-def vendor_performance(session: Session = Depends(get_session)):
-    """Read-only view over fixverify's tables in the unified DB (MTTR + quality)."""
-    return analytics.vendor_performance(session)
-
-
-@app.get("/analytics/profiles")
-def get_profiles(
+@app.get("/")
+def overview(
     session: Session = Depends(get_session),
     by: str = Query("location", pattern="^(location|category|equipment)$"),
 ):
-    return analytics.profiles(session, by)
+    """The whole analytics output, in one call (docs/05).
+
+    Clusters are ranked by how many members they have *now*, not by the peak the
+    detector last recorded — a remediated cluster stops accruing members and drops
+    off the list instead of topping it forever. MTBF and MTTR are computed here to
+    feed `insights` but are not returned: raw metrics are generated elsewhere, and
+    what this endpoint owes a caller is the findings over them.
+    """
+    group_by = analytics.group_for(by)
+    clusters = analytics.systemic_clusters(session)
+    profiles = analytics.profiles(session, by)
+    vendors = analytics.vendor_performance(session)
+    return {
+        "group_by": group_by,
+        "systemic": clusters,
+        "profiles": profiles,
+        "vendor_performance": vendors,
+        "insights": insights.derive(
+            clusters, profiles,
+            analytics.mtbf(session, group_by), analytics.mttr(session, group_by),
+            vendors, group_by, config.SYSTEMIC_WINDOW_DAYS,
+        ),
+    }
 
 
 @app.get("/analytics/insights")

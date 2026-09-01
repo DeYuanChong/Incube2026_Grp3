@@ -36,6 +36,13 @@ def _cutoff(days: int) -> str:
     return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
 
+def group_for(by: str) -> str:
+    """`location` is the profile-level name for the `building|floor` grouping.
+    One formula, so the profiles and the metrics computed beside them cannot end
+    up grouped differently."""
+    return "floor" if by == "location" else by
+
+
 def _grouped(session: Session, group_by: str) -> dict[str, list[IssueFact]]:
     key_fn = GROUP_KEYS[group_by]
     groups: dict[str, list[IssueFact]] = defaultdict(list)
@@ -174,7 +181,7 @@ def profiles(session: Session, by: str = "location") -> list[dict]:
     `window_days` and the window before it — a rate needs a period, or it only
     ever drifts towards whatever the building has always been like.
     """
-    group_by = "floor" if by == "location" else by
+    group_by = group_for(by)
     recent_cutoff = _cutoff(TREND_WINDOW_DAYS)
     prior_cutoff = _cutoff(TREND_WINDOW_DAYS * 2)
     out = []

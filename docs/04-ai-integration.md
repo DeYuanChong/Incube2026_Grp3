@@ -34,22 +34,7 @@ extractor for fenced JSON).
   (`POST /issues/{id}/accept-suggested-category`). Otherwise the user's category
   stands, and the suggestion is stored for triage analytics either way.
 
-## 2. Expectation management / ETA (Reporting)
-
-Deterministic formula (no LLM — must be explainable to the reporter):
-
-```
-base_days      = BASE_DAYS[category]            # e.g. lighting 2, aircon 3, others 5
-severity_mult  = {critical: 0.5, high: 0.75, medium: 1.0, low: 1.5}[severity or medium]
-load_factor    = 1 + min(open_issue_count / CAPACITY_PER_DAY, 2.0)   # live backlog pressure
-estimated_days = round(base_days * severity_mult * load_factor, 1)
-```
-
-Returned with `estimate_basis` text, e.g. *"Lighting defects typically take ~2
-days; 14 issues currently open (+40%)."* — so a reporter can judge whether
-self-resolving is faster. Recomputed at triage when severity is set.
-
-## 3. Severity & urgency suggestion (Triage)
+## 2. Severity & urgency suggestion (Triage)
 
 - **Input**: description, category, location, `is_critical_system` keywords,
   duplicate count, and the systemic-cluster context (how many similar recent
@@ -62,7 +47,7 @@ self-resolving is faster. Recomputed at triage when severity is set.
 - Admin can confirm/override; overrides are stored (`admin_override_severity`)
   to later evaluate AI suggestion quality.
 
-## 4. Duplicate detection (Triage)
+## 3. Duplicate detection (Triage)
 
 Heuristic first: same `category` + `building` + `floor` with `status` not closed,
 created within 14 days → candidate set. Then LLM compares descriptions pairwise
@@ -70,7 +55,7 @@ created within 14 days → candidate set. Then LLM compares descriptions pairwis
 `duplicate_group_id`; `duplicate_count` is written back to reporting and feeds
 the severity bump rule.
 
-## 5. Evidence recommendation (Fix & Verify)
+## 4. Evidence recommendation (Fix & Verify)
 
 LLM, given issue description + category, returns:
 
@@ -90,7 +75,7 @@ LLM, given issue description + category, returns:
 to an admin. Recommendations are **suggestions only**; whatever the maintenance
 user uploads is still processed.
 
-## 6. Proof-of-work relevance verification (Fix & Verify)
+## 5. Proof-of-work relevance verification (Fix & Verify)
 
 - **When**: on every proof upload with `media_type=image`.
 - **Call**: vision model with the image (base64 data URL) + issue description +
@@ -115,11 +100,53 @@ user uploads is still processed.
 - **Final say is always human**: AI relevance is a pre-filter; an admin performs
   the actual verification (`POST /proofs/{id}/human-verify`).
 
+## 6. Photo verification & recategorization (Reporting)
+
+- **When**: on `POST /issues/{id}/photos` (reporters can attach photos to
+  their own report while it is still `status=reported`; stored permanently,
+  sharing fixverify's `uploads` docker volume under an `issues/` subfolder).
+- **Call**: vision model with the image (base64 data URL) + the issue's
+  current category/title/description in one joint call. Output:
+  `{verdict: aligned|misaligned|inconclusive, confidence, reason,
+  suggested_category, suggested_title, suggested_description}`
+  (`suggested_*` only non-null when `verdict=misaligned` and confident).
+- **Combining signals — suggest-only, like category suggestion in §1**:
+  three signals feed the category suggestion — the issue's current category
+  (`U`), the pending text-only suggestion from §1 if any (`T`), and a
+  majority vote across all of the issue's photos (`P`; each photo votes for
+  the category it was checked against if `aligned`, or its
+  `suggested_category` if `misaligned` with a guess). If `P` disagrees with
+  `U` but agrees with `T`, the existing recategorize suggestion is
+  reinforced; if `P` instead agrees with `U` (backing the reporter against a
+  lone disagreeing text-only read), the recategorize banner is suppressed in
+  favor of a soft, non-actionable `photo_note`; a genuine three-way
+  disagreement falls back to trusting the text-only suggestion, logging the
+  conflict to the issue timeline for triage visibility only. Title/
+  description suggestions are independent of this vote — sourced from
+  whichever uploaded photo has the highest-confidence `misaligned` verdict.
+- **Never auto-rewrites**: exactly like accepting a category suggestion, the
+  reporter must explicitly accept via `POST /issues/{id}/accept-suggested-title`
+  or `.../accept-suggested-description`. Editing the issue's text clears any
+  pending photo-derived suggestions (they'd reference stale text).
+
+## 7. Description autocomplete (Reporting)
+
+- **When**: `POST /issues/suggest-description`, called while the report form is
+  being filled, before the issue exists.
+- **Prompt**: title (+ optional category/location) → a 1-2 sentence draft
+  description + confidence.
+- **Policy**: suggestion only — the frontend offers accept/dismiss, never
+  auto-fills. On AI failure, timeout, or an unusably vague title, the
+  endpoint returns `description: null` with HTTP 200 so the form is never
+  blocked.
+
 ## Prompt inventory
 
 | Prompt file | Service | Task |
 |---|---|---|
 | `reporting/app/prompts.py::CATEGORIZE` | reporting | category suggestion |
+| `reporting/app/prompts.py::VERIFY_PHOTO` | reporting | photo-vs-report verification |
+| `reporting/app/prompts.py::SUGGEST_DESCRIPTION` | reporting | description autocomplete |
 | `triage/app/prompts.py::SEVERITY` | triage | severity/urgency + equipment |
 | `triage/app/prompts.py::DUPLICATE` | triage | pairwise duplicate check |
 | `triage/app/prompts.py::SYSTEMIC` | triage | cluster maintenance recommendation (also the body of the admin escalation notification, doc 05) |

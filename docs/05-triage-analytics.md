@@ -9,6 +9,68 @@ in `_find_duplicate`, which is why cancellation publishes an event too.
 
 All macro-level analysis runs on this snapshot, never on reporting's live DB.
 
+## One GET, one analytics output
+
+`GET /` (service-local; `/api/triage/` through the gateway) returns the whole
+macro-level output in one object:
+
+| Key | What |
+|---|---|
+| `group_by` | the grouping every block below is keyed on, resolved from `?by=location\|category\|equipment` |
+| `systemic` | every stored cluster with its live count, `active` flag and recommendation |
+| `profiles` | per-group backlog shape, trend, repeat rate and duplicate rate |
+| `vendor_performance` | per-assignee speed and quality, read from the `fixverify` schema |
+| `insights` | the findings over all of the above (next section) |
+
+There is no `metrics` key and no per-block endpoint. MTBF and MTTR are still
+computed — `insights` is built on them — but they are not served: raw metrics are
+generated elsewhere, and what this endpoint owes a caller is the findings over
+them, each carrying the numbers that produced it as evidence.
+
+`?by=location` groups on `building|floor` and is the name `profiles` uses; every
+other block resolves it through `analytics.group_for`, so the profiles and the
+metrics computed beside them cannot end up grouped differently. `group_by` in the
+response reports what it resolved to.
+
+## Insights
+
+Each insight is flat: a `kind`, the `group` it is about, a one-sentence `detail`,
+and an `evidence` dict holding the figures that tripped the rule.
+
+| `kind` | Fires when | Says |
+|---|---|---|
+| `systemic_active` | a cluster still clears `SYSTEMIC_MIN_COUNT` in the live window | the root cause has not been fixed |
+| `worsening` | `trend_pct ≥ 50` on ≥ 3 issues this window | this place is getting worse against its own baseline |
+| `chronic` | `repeat_rate ≥ 0.5` on ≥ 3 issues this window | repairs here are not holding |
+| `duplicate_heavy` | `duplicate_rate ≥ 0.3` over ≥ 5 issues | one defect is costing several tickets |
+| `rapid_recurrence` | `mtbf_days ≤ 7` | preventive work beats repeat repairs |
+| `slow_repair` | MTTR ≥ 2× the median group's, over ≥ 3 repairs | this group is slow relative to the others |
+| `verification_bottleneck` | `verification_overhead_days > mttr_days` | the sign-off queue, not the repair, is the delay |
+| `proof_quality` | rejection rate ≥ 0.3 over ≥ 5 proofs | this assignee's speed numbers are not the whole story |
+
+`chronic` is skipped when `group_by=category`, where `repeat_rate` is degenerate
+(the group *is* one category, so every issue after the first counts and the rule
+would fire on all of them while saying nothing). `slow_repair` needs a baseline,
+so a single group is never slow — the median across groups is what it compares
+against, since one abandoned ticket drags a mean and not a median.
+
+**Rules, not an LLM, and deliberately.** Every rule above is a threshold over
+numbers already computed, so a finding is reproducible, cheap and arguable — an
+admin can read the evidence and disagree with it. The one genuinely generative
+judgement in this service, *what to do about a cluster*, is already the LLM's in
+`SystemicCluster.recommendation` and rides along in `systemic`. What an LLM would
+add that rules cannot is correlation across the free text of descriptions — the
+same "water ingress" language surfacing under plumbing, electrical and aircon in
+one building, which a `category|building|floor` cluster key structurally cannot
+see. That is a wider cluster key and a new prompt rather than an insight rule;
+`app/insights.py::derive` is where it would land.
+
+Thresholds are module constants in `app/insights.py`, next to the rules they
+gate, because a site whose normal is not this normal needs them tuned. The
+minimum counts (`MIN_RECENT`, `MIN_TOTAL`, `MIN_REPAIRED`, `MIN_PROOFS`) are
+there so a rate over two tickets is never reported as a trend. Self-check:
+`python3 insights.py`.
+
 ## Systemic-fault detection (macro level)
 
 Goal: surface deeper root problems that individual tickets hide.
@@ -30,7 +92,7 @@ Goal: surface deeper root problems that individual tickets hide.
    `issue_count` and `last_seen` are refreshed on every run, so both are
    as-of `updated_at`, not live — a cluster whose window has rolled off keeps
    its last computed count until a new member arrives.
-5. **Clusters decay.** `GET /analytics/systemic` therefore returns two counts
+5. **Clusters decay.** The `systemic` block therefore returns two counts
    per cluster: the stored `issue_count`, which is what the detector saw when a
    member last arrived, and `issue_count_live`, recounted over the current
    window on every request, with `active` for whether it still clears
@@ -110,7 +172,7 @@ Why a nullable second key rather than more columns on the row:
   now, and one whose window has rolled off reports fewer than the
   `SYSTEMIC_MIN_COUNT` that flagged it. `SystemicCluster.issue_count` keeps the
   detector's number — the two answer different questions and are expected to
-  diverge. `GET /analytics/systemic` returns both, as `issue_count` and
+  diverge. The `systemic` block returns both, as `issue_count` and
   `issue_count_live` (above).
 
 ### `is_critical_system` is not a triage output
@@ -142,7 +204,7 @@ escalation, below, remains unowned and unbuilt.
 Escalation — deciding a cluster is worth someone's attention and telling them —
 is a separate concern with a separate owner, and the payload is the whole of the
 interface between them. Whoever takes it on reads `systemic_payload` off a
-triage result, or polls `GET /analytics/systemic`; either way triage does not
+triage result, or polls the `systemic` block of `GET /`; either way triage does not
 change. Design notes for that owner, kept here because they fall out of how the
 cluster is stored:
 
@@ -156,10 +218,9 @@ cluster is stored:
   There is no top-level `issue_id` — no issue exists for the *cluster* — so any
   consumer keyed on `payload.issue_id` needs its own case. `issues[]` carries
   the members, which is what a notification would link to.
-- **Nothing new to read from.** `GET /analytics/systemic` returns every cluster
-  with its recommendation, and `GET /analytics/insights` returns the ranked,
-  card-shaped read of them with the decayed ones marked. A notifier needs
-  neither a new endpoint nor a new column.
+- **Nothing new to read from.** The `systemic` block already returns every
+  cluster with its recommendation, and `insights` flags the ones still accruing
+  members as `systemic_active`.
 - **A cluster's recommendation is written once and not refreshed.** It reflects
   the members present when it crossed the threshold; a cluster that later grows
   to 30 issues still carries the advice written at 3. `issues` and the payload's
@@ -175,8 +236,8 @@ ordinary report — deliberate, in exchange for zero new schema.
 
 ## Profiles
 
-`GET /analytics/profiles?by=location|category|equipment` returns, per group
-(`building|floor`, `category`, or `equipment_name`):
+The `profiles` block of `GET /?by=location|category|equipment` returns, per
+group (`building|floor`, `category`, or `equipment_name`):
 
 | Field | Over | Meaning |
 |---|---|---|
@@ -214,9 +275,10 @@ For a group g (category|location|equipment), take one issue per duplicate group
 MTBF(g) = mean(created_at[i+1] - created_at[i])        # requires ≥ 2 failures
 ```
 
-Reported in days, grouped by `category`, `building`, `floor`, or `equipment`.
-Low MTBF + systemic flag ⇒ recommend preventive maintenance instead of repeat
-repairs.
+Computed in days over the grouping `?by=` resolves to. Not returned — it feeds
+the `rapid_recurrence` insight, which is the same conclusion (low MTBF + a live
+cluster ⇒ preventive maintenance instead of repeat repairs) with the number
+attached as evidence.
 
 **Duplicates are collapsed first, because a duplicate is the same defect
 reported again, not the asset failing again.** Counting the confirmations
@@ -248,7 +310,7 @@ Also exposed per group:
   when every repaired issue also closed.
 
 ### Quality signals (vendor performance beyond speed)
-Served by `GET /analytics/vendor-performance`, which reads the `fixverify` schema
+Served in the `vendor_performance` block, which reads the `fixverify` schema
 directly — the sanctioned read-only cross-schema access in the shared PostgreSQL DB:
 - **Proof rejection rate**: rejected proofs / total proofs per assignee — AI
   relevance rejections plus human rejections.
@@ -327,16 +389,10 @@ Three properties are deliberate:
 
 Recorded so they are not rediscovered during implementation.
 
-- ~~**Nobody escalates a cluster.**~~ **Since addressed.**
-  `GET /analytics/insights` assembles clusters — alongside location trends,
-  asset MTBF and proof-rejection rates — into ranked recommendation cards, and
-  the frontend's AI insights page (admin) is their reader. An admin no longer
-  has to open a triaged issue or call `/analytics/systemic` to learn about one.
-  A card carries the cluster's stored recommendation as its action, its live and
-  at-detection counts as evidence, and `active: false` when the cluster has
-  stopped accruing members. Still no *push*: nothing publishes
-  `issue.escalated`, so this is a screen an admin visits, not a notification
-  that arrives.
+- **Nobody escalates a cluster.** Not a triage gap — triage's side is done, it
+  returns `systemic_payload` — but no other component reads it yet, so an admin
+  learns about a cluster only by opening a triaged issue or
+  `GET /`. Deliberately left outside this service.
 - **Duplicate groups do not resolve together.** `duplicate_group_id` now gates
   dispatch (above), but nothing closes the other members when the primary is
   resolved. A gated duplicate sits at `triaged` until an admin closes it by hand.

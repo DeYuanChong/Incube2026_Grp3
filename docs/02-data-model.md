@@ -15,7 +15,7 @@ Ownership rules:
   `triage/app/db.py` (`ALTER TABLE … ADD COLUMN IF NOT EXISTS`).
 - **Triage may read the `fixverify` schema** (read-only, raw SQL) — triage
   folds repair durations, proof rejections, and resolved-on-arrival counts into
-  its analytics (`/analytics/vendor-performance`).
+  its analytics (the `vendor_performance` block of `GET /api/triage/`).
 - All other cross-service access stays REST/events.
 - For the PoC all services share one DB role (`app`); in production each
   service would get its own credentials, with a `GRANT SELECT ON ALL TABLES IN
@@ -67,11 +67,13 @@ The reference is a facilities job-request export. We adapted it as follows:
 | `ai_category_confidence` | REAL, nullable | 0–1 |
 | `category_source` | TEXT | `user` \| `ai_accepted` |
 | `title` | TEXT | Short summary |
-| `description` | TEXT | Required, free text |
+| `description` | TEXT | Optional, free text |
 | `building` | TEXT | Required |
 | `floor` | TEXT | Required |
 | `room` | TEXT, nullable | Optional per requirements |
 | `equipment_name` | TEXT, nullable | Extracted by triage or entered by user |
+| `mobile_number` | TEXT | Required, reporter's contact number (demo: `+65`-prefixed) |
+| `ack_confirmed` | INTEGER bool | Reporter's consent that their name is recorded with the report |
 | `reporter_name` | TEXT | From `X-User` |
 | `status` | TEXT enum | `reported` `triaged` `in_progress` `pending_verification` `verified` `closed` `cancelled` |
 | `severity` | TEXT enum, nullable | `low` `medium` `high` `critical` (set at triage) |
@@ -79,8 +81,6 @@ The reference is a facilities job-request export. We adapted it as follows:
 | `is_critical_system` | INTEGER bool | default 0 |
 | `duplicate_group_id` | TEXT, nullable | Shared by duplicates of one underlying defect. Also gates dispatch: a duplicate rides the group primary's work order (doc 05). |
 | `duplicate_count` | INTEGER | # of reports in the group (drives escalation) |
-| `estimated_resolution_days` | REAL, nullable | Expectation shown to reporter |
-| `estimate_basis` | TEXT, nullable | Human-readable explanation of the estimate |
 | `resolution_type` | TEXT, nullable | `repaired` `replaced` `no_action` `self_resolved` `duplicate` |
 | `resolution_notes` | TEXT, nullable | |
 | `cancellation_reason` | TEXT, nullable | |
@@ -89,6 +89,21 @@ The reference is a facilities job-request export. We adapted it as follows:
 
 ### `reporting.issue_events` (timeline shown on the dashboard)
 `id`, `issue_id` FK, `event_type`, `detail` (JSON), `actor`, `created_at`
+
+## `reporting.issue_photos` (photos attached to a report, docs/04 §7)
+`id`, `issue_id` FK, `file_path`, `uploaded_by`, `checked_against_category`
+(the category the issue had at the moment this photo was checked — needed
+to correctly recompute the majority-vote signal across photos), `ai_verdict`
+(`aligned` \| `misaligned` \| `inconclusive`), `ai_confidence`, `ai_reason`,
+`ai_suggested_category`, `ai_suggested_title`, `ai_suggested_description`,
+`created_at`. Files are stored under the same docker `uploads` volume
+fixverify's proofs use, in an `issues/` subfolder.
+
+`reporting.issues` also gains, alongside `ai_suggested_category`:
+`ai_suggested_title`, `ai_suggested_description` (photo-derived, suggest-only
+— same accept-then-clear pattern as category), `photo_note` (soft,
+non-actionable FYI text — no accept action), `photo_mismatch_reason`
+(rationale shown next to the title/description suggestion).
 
 ## Triage service — schema `triage`
 
@@ -139,7 +154,8 @@ reads them off the fact columns.
 
 `issue_count` is a stored high-water mark, refreshed only when a new member
 arrives, so a remediated cluster keeps its peak forever.
-`GET /analytics/systemic` therefore recounts the window per request and returns
+The `systemic` block of `GET /api/triage/` therefore recounts the window per
+request and returns
 `issue_count_live` and `active` alongside it; neither is a column (doc 05).
 
 ## Fix & Verify service — schema `fixverify`

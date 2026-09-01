@@ -54,7 +54,7 @@ never hold their own copy of an issue's status as the source of truth.
 
 | Transition | Driven by | How |
 |---|---|---|
-| `[*] → reported` | **Reporting** | `POST /issues` (reporter, via frontend). Reporting also runs AI categorization + ETA here. |
+| `[*] → reported` | **Reporting** | `POST /issues` (reporter, via frontend). Reporting also runs AI categorization here. |
 | `reported → triaged` | **Triage** | Auto-pipeline on the `issue.created` event (admin confirm/override optional) → `POST /issues/{id}/triage-result` on reporting. |
 | `[*] → reported` (systemic escalation) | **Triage → Admin → Reporting** | Triage notifies the admin once when a cluster crosses the systemic threshold; the admin decides whether to file an issue, and does so through the ordinary reporter flow under their own name. Triage creates nothing. The triggering ticket is unaffected. See [05](05-triage-analytics.md). |
 | `triaged → in_progress` | **Fix & Verify** | Work order created on `issue.triaged` event — unless the issue is a duplicate whose group primary is already being worked, in which case it rides that work order and stays at `triaged` (see [05](05-triage-analytics.md)). Then `POST /work-orders/{id}/start` → reporting status API. |
@@ -70,7 +70,7 @@ Boundaries of what each service owns (and explicitly does *not*):
 
 | Service | Owns | Does NOT own |
 |---|---|---|
-| **Reporting** | The `issues` table, the status state machine, timeline, reference numbers, categorization suggestions, ETA. | Severity/urgency *decisions* (it stores what triage tells it), work orders, proofs, notifications. |
+| **Reporting** | The `issues` table, the status state machine, timeline, reference numbers, categorization suggestions. | Severity/urgency *decisions* (it stores what triage tells it), work orders, proofs, notifications. |
 | **Triage** | Triage results, its own `issue_facts` analytics snapshot, systemic clusters, MTBF/MTTR. | Issue status — it writes results back through reporting's API only. It reads issues via REST, never reporting's DB. |
 | **Fix & Verify** | Work orders, uploaded proof files, AI relevance verdicts, human verification records. | Issue status (requests transitions via reporting), triage decisions, who gets notified. |
 | **Notification** | The notification inbox and the event→notification rules. | Any issue/work-order state; it is a pure consumer of events. |
@@ -82,7 +82,7 @@ service **writes** only tables in its own schema; commands and state changes
 still travel via REST APIs and gateway events. The one sanctioned cross-schema
 access: **triage may read the `fixverify` schema** (read-only) to fold
 repair-time and proof-quality data into triage analytics
-(`GET /analytics/vendor-performance`).
+(the `vendor_performance` block of `GET /api/triage/`).
 
 ## Non-goals (for this PoC)
 
