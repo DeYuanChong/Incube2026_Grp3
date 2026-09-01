@@ -17,6 +17,8 @@ from .schemas import (
     IssueCreate,
     IssueUpdate,
     StatusChange,
+    SuggestDescriptionRequest,
+    SuggestDescriptionResponse,
     TriageResultIn,
 )
 
@@ -147,6 +149,19 @@ def create_issue(
          "floor": issue.floor, "reporter": issue.reporter_name, "title": issue.title},
     )
     return issue
+
+
+@app.post("/issues/suggest-description", response_model=SuggestDescriptionResponse)
+def suggest_description(body: SuggestDescriptionRequest):
+    location = None
+    if body.building:
+        location = body.building + (f" / {body.floor}" if body.floor else "")
+    suggestion = ai_client.suggest_description(
+        body.title, body.category.value if body.category else None, location,
+    )
+    if not suggestion:
+        return SuggestDescriptionResponse(description=None, confidence=None)
+    return SuggestDescriptionResponse(**suggestion)
 
 
 @app.get("/issues")

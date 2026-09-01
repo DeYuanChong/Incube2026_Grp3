@@ -137,12 +137,24 @@ user uploads is still processed.
   or `.../accept-suggested-description`. Editing the issue's text clears any
   pending photo-derived suggestions (they'd reference stale text).
 
+## 8. Description autocomplete (Reporting)
+
+- **When**: `POST /issues/suggest-description`, called while the report form is
+  being filled, before the issue exists.
+- **Prompt**: title (+ optional category/location) → a 1-2 sentence draft
+  description + confidence.
+- **Policy**: suggestion only — the frontend offers accept/dismiss, never
+  auto-fills. On AI failure, timeout, or an unusably vague title, the
+  endpoint returns `description: null` with HTTP 200 so the form is never
+  blocked.
+
 ## Prompt inventory
 
 | Prompt file | Service | Task |
 |---|---|---|
 | `reporting/app/prompts.py::CATEGORIZE` | reporting | category suggestion |
 | `reporting/app/prompts.py::VERIFY_PHOTO` | reporting | photo-vs-report verification |
+| `reporting/app/prompts.py::SUGGEST_DESCRIPTION` | reporting | description autocomplete |
 | `triage/app/prompts.py::SEVERITY` | triage | severity/urgency + equipment |
 | `triage/app/prompts.py::DUPLICATE` | triage | pairwise duplicate check |
 | `triage/app/prompts.py::SYSTEMIC` | triage | cluster maintenance recommendation |
