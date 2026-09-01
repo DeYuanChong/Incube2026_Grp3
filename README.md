@@ -4,10 +4,10 @@ A web-based defect reporting application covering the full defect lifecycle:
 
 **User Reporting → Triage → Fix & Verify → Close Loop**
 
-Built as microservices: Python FastAPI backends + React frontend, one unified
-SQLite database with schema-per-service table prefixes (`reporting_*`,
-`triage_*`, `fixverify_*`, `notification_inbox`), AI features powered by a
-self-hosted OpenAI-compatible vLLM endpoint.
+Built as microservices: Python FastAPI backends + React frontend, one shared
+PostgreSQL database with a real schema per service (`reporting`, `triage`,
+`fixverify`, `notification`) and `pg_trgm` fuzzy text search, AI features
+powered by a self-hosted OpenAI-compatible vLLM endpoint.
 
 ## Architecture at a glance
 
@@ -46,6 +46,7 @@ docker compose up --build
 
 ```bash
 cp .env.example .env
+docker compose up -d postgres   # the DB still comes from compose
 # In separate terminals (or use a process manager):
 for svc in reporting triage fixverify notification gateway; do
   (cd services/$svc && pip install -r requirements.txt && uvicorn app.main:app --port $PORT)

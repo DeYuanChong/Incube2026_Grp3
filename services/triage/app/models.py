@@ -13,7 +13,8 @@ def new_id() -> str:
 
 
 class TriageResult(SQLModel, table=True):
-    __tablename__ = "triage_results"
+    __tablename__ = "results"
+    __table_args__ = {"schema": "triage"}
 
     id: str = Field(default_factory=new_id, primary_key=True)
     issue_id: str = Field(index=True)
@@ -34,7 +35,8 @@ class TriageResult(SQLModel, table=True):
 class IssueFact(SQLModel, table=True):
     """Denormalized analytics snapshot of an issue, synced from reporting."""
 
-    __tablename__ = "triage_issue_facts"
+    __tablename__ = "issue_facts"
+    __table_args__ = {"schema": "triage"}
 
     issue_id: str = Field(primary_key=True)
     reference_no: str = ""
@@ -53,7 +55,8 @@ class IssueFact(SQLModel, table=True):
 
 
 class SystemicCluster(SQLModel, table=True):
-    __tablename__ = "triage_systemic_clusters"
+    __tablename__ = "systemic_clusters"
+    __table_args__ = {"schema": "triage"}
 
     id: str = Field(default_factory=new_id, primary_key=True)
     cluster_key: str = Field(index=True, unique=True)  # e.g. "lighting|BlockA|L3"

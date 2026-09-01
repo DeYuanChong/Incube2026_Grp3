@@ -8,6 +8,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 import httpx
+from sqlalchemy import text
 from sqlmodel import Session, select
 
 from . import ai_client, config
@@ -40,8 +41,9 @@ def sync_issue_fact(session: Session, issue: dict) -> IssueFact:
 
 
 def _find_duplicate(session: Session, fact: IssueFact) -> tuple[str | None, float, int]:
-    """Heuristic candidates (same category+building+floor, recent, open) then
-    LLM pairwise confirmation. Returns (duplicate_of_issue_id, confidence, group_size)."""
+    """Heuristic candidates (same category+building+floor, recent, open), ranked
+    by pg_trgm description similarity so the LLM only confirms the closest few.
+    Returns (duplicate_of_issue_id, confidence, group_size)."""
     cutoff = (
         datetime.now(timezone.utc) - timedelta(days=config.DUPLICATE_WINDOW_DAYS)
     ).isoformat()
@@ -53,7 +55,9 @@ def _find_duplicate(session: Session, fact: IssueFact) -> tuple[str | None, floa
             IssueFact.issue_id != fact.issue_id,
             IssueFact.created_at >= cutoff,
             IssueFact.status.notin_(["closed", "cancelled"]),  # type: ignore[attr-defined]
-        )
+        ).order_by(
+            text("similarity(description, :d) DESC").bindparams(d=fact.description)
+        ).limit(5)
     ).all()
     location = f"{fact.building} / {fact.floor}"
     group_size = 1

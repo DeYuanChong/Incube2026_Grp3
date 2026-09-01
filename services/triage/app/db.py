@@ -1,27 +1,16 @@
-import os
-
-from sqlalchemy import event
+from sqlalchemy import text
 from sqlmodel import Session, SQLModel, create_engine
 
 from .config import DATABASE_URL
 
-os.makedirs("data", exist_ok=True)
-# One unified SQLite file shared by all services; WAL + busy timeout so
-# concurrent writers from different services don't collide (docs/02).
-engine = create_engine(
-    DATABASE_URL, connect_args={"check_same_thread": False, "timeout": 30}
-)
-
-
-@event.listens_for(engine, "connect")
-def _sqlite_pragmas(dbapi_conn, _record):
-    cursor = dbapi_conn.cursor()
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA busy_timeout=30000")
-    cursor.close()
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 
 def init_db() -> None:
+    with engine.begin() as conn:
+        conn.execute(text("CREATE SCHEMA IF NOT EXISTS triage"))
+        # pg_trgm powers the duplicate-detection similarity pre-filter (docs/05)
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
     SQLModel.metadata.create_all(engine)
 
 

@@ -1,8 +1,8 @@
-"""MTBF / MTTR / profiles over the triage_issue_facts snapshot, plus read-only
-queries over fixverify's tables in the unified DB (docs/05-triage-analytics.md).
+"""MTBF / MTTR / profiles over the triage.issue_facts snapshot, plus read-only
+queries over the fixverify schema (docs/05-triage-analytics.md).
 
-Cross-schema rule: triage may READ fixverify_* tables (raw SQL below) but never
-writes to them — fixverify remains their single writer.
+Cross-schema rule: triage may READ the fixverify schema (raw SQL below) but
+never writes to it — fixverify remains its single writer.
 """
 
 from collections import defaultdict
@@ -88,18 +88,20 @@ def vendor_performance(session: Session) -> list[dict]:
                 COUNT(DISTINCT CASE WHEN wo.resolved_on_arrival THEN wo.id END) AS resolved_on_arrival,
                 AVG(CASE
                     WHEN wo.started_at IS NOT NULL AND wo.completed_at IS NOT NULL
-                    THEN (julianday(wo.completed_at) - julianday(wo.started_at)) * 24
+                    THEN EXTRACT(EPOCH FROM (wo.completed_at::timestamptz
+                                             - wo.started_at::timestamptz)) / 3600.0
                 END)                                               AS avg_repair_hours,
                 COUNT(p.id)                                        AS proofs,
                 SUM(CASE WHEN p.ai_verdict = 'irrelevant'
                           OR p.human_verdict = 'rejected' THEN 1 ELSE 0 END) AS proofs_rejected
-            FROM fixverify_work_orders wo
-            LEFT JOIN fixverify_proofs p ON p.work_order_id = wo.id
+            FROM fixverify.work_orders wo
+            LEFT JOIN fixverify.proofs p ON p.work_order_id = wo.id
             WHERE wo.assignee IS NOT NULL
             GROUP BY wo.assignee
         """)).all()
     except Exception:
-        return []  # fixverify tables not created yet (fresh DB)
+        session.rollback()
+        return []  # fixverify schema not created yet (fresh DB)
     out = []
     for r in rows:
         m = r._mapping
@@ -109,7 +111,7 @@ def vendor_performance(session: Session) -> list[dict]:
             "work_orders": m["work_orders"],
             "verified": m["verified"],
             "resolved_on_arrival": m["resolved_on_arrival"],
-            "avg_repair_hours": round(m["avg_repair_hours"], 1) if m["avg_repair_hours"] else None,
+            "avg_repair_hours": round(float(m["avg_repair_hours"]), 1) if m["avg_repair_hours"] else None,
             "proofs": proofs,
             "proof_rejection_rate": round((m["proofs_rejected"] or 0) / proofs, 2) if proofs else None,
         })

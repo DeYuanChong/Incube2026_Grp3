@@ -2,26 +2,16 @@ import os
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import event
+from sqlalchemy import text
 from sqlmodel import Session, SQLModel, create_engine, func, or_, select
 
 from .models import Notification
 from .rules import notifications_for
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data/unified.db")
-os.makedirs("data", exist_ok=True)
-# Shares the unified SQLite file with the other services (WAL for concurrency)
-engine = create_engine(
-    DATABASE_URL, connect_args={"check_same_thread": False, "timeout": 30}
+DATABASE_URL = os.getenv(
+    "DATABASE_URL", "postgresql+psycopg://app:app@localhost:5432/defects"
 )
-
-
-@event.listens_for(engine, "connect")
-def _sqlite_pragmas(dbapi_conn, _record):
-    cursor = dbapi_conn.cursor()
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA busy_timeout=30000")
-    cursor.close()
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 app = FastAPI(title="Notification Service", version="0.1.0")
 app.add_middleware(
@@ -31,6 +21,8 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup() -> None:
+    with engine.begin() as conn:
+        conn.execute(text("CREATE SCHEMA IF NOT EXISTS notification"))
     SQLModel.metadata.create_all(engine)
 
 

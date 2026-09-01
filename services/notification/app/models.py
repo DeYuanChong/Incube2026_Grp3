@@ -9,7 +9,8 @@ def now_iso() -> str:
 
 
 class Notification(SQLModel, table=True):
-    __tablename__ = "notification_inbox"
+    __tablename__ = "inbox"
+    __table_args__ = {"schema": "notification"}
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
     target_role: str = Field(index=True)  # reporter | maintenance | admin

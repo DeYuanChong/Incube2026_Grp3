@@ -1,19 +1,30 @@
 # 02 — Data Model
 
-All services share **one unified SQLite database** (`data/unified.db`, WAL mode
-for concurrent writers). SQLite has no named schemas, so schema-per-service is
-expressed as a **table-name prefix**: `reporting_*`, `triage_*`, `fixverify_*`,
-`notification_*`.
+All services share **one PostgreSQL database** (`defects`), with a **real
+schema per service**: `reporting`, `triage`, `fixverify`, `notification`.
+Each service creates its own schema at startup (`CREATE SCHEMA IF NOT EXISTS`).
 
 Ownership rules:
-- Each service **writes only** tables under its own prefix (it remains the
-  single writer and migration owner for them).
-- **Triage may read `fixverify_*` tables** (read-only, raw SQL) — the rationale
-  for unifying the DB: triage folds repair durations, proof rejections, and
-  resolved-on-arrival counts into its analytics (`/analytics/vendor-performance`).
+- Each service **writes only** tables in its own schema (it remains the single
+  writer and migration owner for them).
+- **Triage may read the `fixverify` schema** (read-only, raw SQL) — triage
+  folds repair durations, proof rejections, and resolved-on-arrival counts into
+  its analytics (`/analytics/vendor-performance`).
 - All other cross-service access stays REST/events.
-- On Postgres these prefixes would become real schemas (`reporting.issues` etc.)
-  with per-service credentials and a read-only grant for triage on fixverify.
+- For the PoC all services share one DB role (`app`); in production each
+  service would get its own credentials, with a `GRANT SELECT ON ALL TABLES IN
+  SCHEMA fixverify TO triage_role` making the read boundary enforceable.
+
+Fuzzy text search uses the **`pg_trgm`** extension (enabled at startup):
+- `GET /issues?q=` matches on trigram `word_similarity` (typo-tolerant) OR
+  `ILIKE` substring, ranked by similarity, backed by a GIN index on
+  `reporting.issues(title || ' ' || description)`.
+- Triage's duplicate detection ranks candidate issues by description
+  `similarity()` and only sends the top 5 to the LLM for confirmation.
+
+Timestamps remain UTC ISO-8601 **strings** (portable from the SQLite era; they
+sort correctly and cast cleanly via `::timestamptz` where SQL needs date math).
+Converting columns to native `timestamptz` is a straightforward later cleanup.
 
 ## Mapping from the reference schema (`example_db_schema.jpeg`)
 
@@ -38,9 +49,9 @@ The reference is a facilities job-request export. We adapted it as follows:
 | No Follow-up Action / Reason | folded into `resolution_type = no_action` + `resolution_notes` |
 | Charge to PWO?, Costing Required?, Negligence/Non-Negligence remarks, Minor Building Repair Works, Control Register, Building Security System Declaration | **Out of scope for PoC** — administrative/financial fields; add later if needed |
 
-## Reporting service — `reporting_*` tables
+## Reporting service — schema `reporting`
 
-### `reporting_issues`
+### `reporting.issues`
 | Column | Type | Notes |
 |---|---|---|
 | `id` | TEXT (UUID) PK | |
@@ -70,30 +81,30 @@ The reference is a facilities job-request export. We adapted it as follows:
 | `closed_by` | TEXT, nullable | `reporter` \| `auto` \| `admin` |
 | `created_at` / `triaged_at` / `work_started_at` / `fixed_at` / `verified_at` / `closed_at` / `updated_at` | TEXT ISO-8601 | Lifecycle timestamps (feed MTTR/MTBF) |
 
-### `reporting_issue_events` (timeline shown on the dashboard)
+### `reporting.issue_events` (timeline shown on the dashboard)
 `id`, `issue_id` FK, `event_type`, `detail` (JSON), `actor`, `created_at`
 
-## Triage service — `triage_*` tables
+## Triage service — schema `triage`
 
-### `triage_results`
+### `triage.results`
 `id`, `issue_id`, `suggested_severity`, `suggested_urgency`,
 `severity_rationale` (LLM explanation), `equipment_extracted`,
 `duplicate_of_issue_id`, `duplicate_confidence`, `systemic_flag` (bool),
 `systemic_cluster_id`, `admin_confirmed` (bool), `admin_override_severity`,
 `created_at`
 
-### `triage_issue_facts` (local analytics snapshot, refreshed from reporting)
+### `triage.issue_facts` (local analytics snapshot, refreshed from reporting)
 Denormalized copy of the issue fields needed for analytics:
 `issue_id`, `category`, `building`, `floor`, `room`, `equipment_name`,
 `severity`, `status`, `created_at`, `fixed_at`, `closed_at`, `synced_at`
 
-### `triage_systemic_clusters`
+### `triage.systemic_clusters`
 `id`, `cluster_key` (e.g. `lighting|BlockA|L3`), `issue_count`, `first_seen`,
 `last_seen`, `recommendation` (LLM: preventive/prescriptive maintenance advice)
 
-## Fix & Verify service — `fixverify_*` tables
+## Fix & Verify service — schema `fixverify`
 
-### `fixverify_work_orders`
+### `fixverify.work_orders`
 `id`, `issue_id`, `status` (`open` `in_progress` `awaiting_proof`
 `pending_human_verification` `verified` `rejected`), `assignee`,
 `is_temporary_fix` (bool), `resolved_on_arrival` (bool — defect was already
@@ -103,16 +114,16 @@ reporter self-service; the issue skips `in_progress` entirely),
 types + rationale), `requires_human_verification` (bool — true when the defect
 is not visually verifiable, e.g. smells/noise), `started_at`, `completed_at`
 
-### `fixverify_proofs`
+### `fixverify.proofs`
 `id`, `work_order_id`, `file_path`, `media_type` (`image` `audio` `other`),
 `uploaded_by`, `note`, `ai_verdict` (`relevant` `irrelevant` `inconclusive`),
 `ai_reason` (shown to uploader on rejection), `ai_confidence`,
 `human_verdict` (`approved` `rejected`, nullable), `human_verifier`,
 `human_notes`, `created_at`
 
-## Notification service — `notification_*` tables
+## Notification service — schema `notification`
 
-### `notification_inbox`
+### `notification.inbox`
 `id`, `target_role` (`reporter` `maintenance` `admin`), `target_user`
 (nullable — narrows to a person), `issue_id`, `event_type`, `title`, `body`,
 `is_read` (bool), `created_at`

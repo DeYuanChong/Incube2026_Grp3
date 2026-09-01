@@ -1,4 +1,18 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: defects
+    ports: ["5432:5432"]
+    volumes: ["pg-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d defects"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
   gateway:
     build: services/gateway
     ports: ["8000:8000"]
@@ -15,7 +29,9 @@ services:
     env_file: .env
     environment:
       GATEWAY_URL: http://gateway:8000
-    volumes: ["app-data:/app/data"]
+      DATABASE_URL: postgresql+psycopg://app:app@postgres:5432/defects
+    depends_on:
+      postgres: { condition: service_healthy }
 
   triage:
     build: services/triage
@@ -24,7 +40,9 @@ services:
     environment:
       GATEWAY_URL: http://gateway:8000
       REPORTING_URL: http://reporting:8001
-    volumes: ["app-data:/app/data"]
+      DATABASE_URL: postgresql+psycopg://app:app@postgres:5432/defects
+    depends_on:
+      postgres: { condition: service_healthy }
 
   fixverify:
     build: services/fixverify
@@ -33,14 +51,19 @@ services:
     environment:
       GATEWAY_URL: http://gateway:8000
       REPORTING_URL: http://reporting:8001
-    volumes: ["app-data:/app/data"]
+      DATABASE_URL: postgresql+psycopg://app:app@postgres:5432/defects
+    volumes: ["uploads:/app/data/uploads"]
+    depends_on:
+      postgres: { condition: service_healthy }
 
   notification:
     build: services/notification
     ports: ["8004:8004"]
     environment:
       GATEWAY_URL: http://gateway:8000
-    volumes: ["app-data:/app/data"]
+      DATABASE_URL: postgresql+psycopg://app:app@postgres:5432/defects
+    depends_on:
+      postgres: { condition: service_healthy }
 
   frontend:
     build: frontend
@@ -49,6 +72,6 @@ services:
       VITE_GATEWAY_URL: http://localhost:8000
     depends_on: [gateway]
 
-# One shared volume: all services open the same data/unified.db (WAL mode)
 volumes:
-  app-data:
+  pg-data:
+  uploads:

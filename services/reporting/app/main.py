@@ -2,6 +2,7 @@ import json
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 from sqlmodel import Session, func, select
 
 from . import ai_client, estimator, events
@@ -122,8 +123,19 @@ def list_issues(
     if reporter:
         stmt = stmt.where(Issue.reporter_name == reporter)
     if q:
-        stmt = stmt.where(Issue.description.contains(q) | Issue.title.contains(q))  # type: ignore[attr-defined]
-    stmt = stmt.order_by(Issue.created_at.desc()).limit(limit).offset(offset)  # type: ignore[attr-defined]
+        # Fuzzy search: pg_trgm word similarity (typo-tolerant) OR plain substring
+        # match, ranked by similarity (GIN index created in db.init_db)
+        fuzzy = text(
+            "(word_similarity(:q, title || ' ' || description) > 0.3"
+            " OR title ILIKE :like OR description ILIKE :like)"
+        ).bindparams(q=q, like=f"%{q}%")
+        rank = text(
+            "word_similarity(:rq, title || ' ' || description) DESC"
+        ).bindparams(rq=q)
+        stmt = stmt.where(fuzzy).order_by(rank)
+    else:
+        stmt = stmt.order_by(Issue.created_at.desc())  # type: ignore[attr-defined]
+    stmt = stmt.limit(limit).offset(offset)
     return session.exec(stmt).all()
 
 
