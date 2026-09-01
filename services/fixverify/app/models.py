@@ -24,6 +24,7 @@ class WorkOrder(SQLModel, table=True):
     # open | in_progress | awaiting_proof | pending_human_verification | verified | rejected
     assignee: str | None = None
     is_temporary_fix: bool = False
+    resolved_on_arrival: bool = False  # already fixed when maintenance arrived / self-resolved
     evidence_recommendation: str | None = None  # JSON (docs/04 §5)
     requires_human_verification: bool = False  # not visually verifiable (e.g. smells)
     created_at: str = Field(default_factory=now_iso)

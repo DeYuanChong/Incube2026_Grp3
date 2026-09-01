@@ -83,7 +83,10 @@ Denormalized copy of the issue fields needed for analytics:
 ### `work_orders`
 `id`, `issue_id`, `status` (`open` `in_progress` `awaiting_proof`
 `pending_human_verification` `verified` `rejected`), `assignee`,
-`is_temporary_fix` (bool), `evidence_recommendation` (JSON: recommended proof
+`is_temporary_fix` (bool), `resolved_on_arrival` (bool — defect was already
+resolved when maintenance arrived, e.g. a spill someone else cleaned up or a
+reporter self-service; the issue skips `in_progress` entirely),
+`evidence_recommendation` (JSON: recommended proof
 types + rationale), `requires_human_verification` (bool — true when the defect
 is not visually verifiable, e.g. smells/noise), `started_at`, `completed_at`
 

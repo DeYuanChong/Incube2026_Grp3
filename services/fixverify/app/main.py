@@ -133,12 +133,17 @@ def upload_proof(
     relevant      → stored, issue → pending_verification, admin notified
     irrelevant    → HTTP 422 with the reason; uploader must re-upload
     inconclusive  → stored, flagged for human review (AI never blocks)
+
+    A proof on an 'open' work order means the defect was already resolved on
+    arrival (someone else fixed it / reporter self-serviced): the issue jumps
+    triaged → pending_verification without ever entering in_progress.
     """
     wo = session.get(WorkOrder, wo_id)
     if not wo:
         raise HTTPException(404, "work order not found")
-    if wo.status not in ("in_progress", "awaiting_proof"):
+    if wo.status not in ("open", "in_progress", "awaiting_proof"):
         raise HTTPException(409, f"work order status '{wo.status}' does not accept proofs")
+    resolved_on_arrival = wo.status == "open"
 
     ext = os.path.splitext(file.filename or "")[1] or ".bin"
     path = os.path.join(config.UPLOAD_DIR, f"{uuid.uuid4()}{ext}")
@@ -181,13 +186,21 @@ def upload_proof(
         })
 
     wo.status = "pending_human_verification"
+    if resolved_on_arrival:
+        wo.resolved_on_arrival = True
+        wo.assignee = wo.assignee or x_user
     session.commit()
     session.refresh(proof)
-    _set_issue_status(wo.issue_id, "pending_verification", "proof of work uploaded")
+    _set_issue_status(
+        wo.issue_id, "pending_verification",
+        "already resolved on arrival — proof uploaded" if resolved_on_arrival
+        else "proof of work uploaded",
+    )
     background.add_task(events.publish, "proof.uploaded",
                         {"issue_id": wo.issue_id, "work_order_id": wo.id,
                          "proof_id": proof.id, "uploaded_by": x_user,
                          "ai_verdict": proof.ai_verdict,
+                         "resolved_on_arrival": resolved_on_arrival,
                          "passed_relevance": proof.ai_verdict == "relevant"})
     return proof
 

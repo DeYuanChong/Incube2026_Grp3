@@ -43,7 +43,7 @@ service-local. Gateway mapping: `/api/reporting/*→:8001/*`, `/api/triage/*→:
 | `GET /work-orders/{id}` | Work order + proofs. |
 | `POST /work-orders/{id}/start` | `{assignee}` → status `in_progress`; PATCHes issue → `in_progress`; emits `work_order.started`. |
 | `GET /work-orders/{id}/evidence-recommendation` | LLM recommendation: `{recommended: [{media_type, what, why}], requires_human_verification, rationale}`. Cached on the work order. |
-| `POST /work-orders/{id}/proofs` | Multipart: `file`, `note?`. Runs vision relevance check against issue description. `relevant` → issue `pending_verification`, emits `proof.uploaded`; `irrelevant` → HTTP 422 with `{ai_verdict, ai_reason}`, emits `proof.rejected` (uploader must re-upload). `inconclusive`/non-visual → stored, flagged for human review. |
+| `POST /work-orders/{id}/proofs` | Multipart: `file`, `note?`. Runs vision relevance check against issue description. `relevant` → issue `pending_verification`, emits `proof.uploaded`; `irrelevant` → HTTP 422 with `{ai_verdict, ai_reason}`, emits `proof.rejected` (uploader must re-upload). `inconclusive`/non-visual → stored, flagged for human review. Also accepted on an **`open`** work order: this means the defect was already resolved on arrival (or self-serviced) — the work order is marked `resolved_on_arrival` and the issue jumps `triaged → pending_verification`, skipping `in_progress`. |
 | `GET /proofs/{id}/file` | Serve the uploaded file. |
 | `POST /proofs/{id}/human-verify` | Admin: `{approved: bool, notes?}`. Approved → issue `verified`, emits `issue.verified`; rejected → work order back to `awaiting_proof`, issue `in_progress`. |
 | `POST /webhooks/events` | Receiver (`issue.triaged` → auto-create work order). |

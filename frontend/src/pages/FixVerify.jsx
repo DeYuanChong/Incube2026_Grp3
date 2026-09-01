@@ -45,8 +45,14 @@ function WorkOrderCard({ wo, onChanged }) {
 
       {wo.status === 'open' && role !== 'admin' && <button onClick={start}>Start work</button>}
 
-      {(wo.status === 'in_progress' || wo.status === 'awaiting_proof') && role !== 'admin' && (
+      {['open', 'in_progress', 'awaiting_proof'].includes(wo.status) && role !== 'admin' && (
         <>
+          {wo.status === 'open' && (
+            <p className="hint">
+              Already resolved on arrival (someone cleaned it up / reporter self-serviced)?
+              Upload proof of the resolved state below — no need to start work.
+            </p>
+          )}
           <button className="secondary" onClick={loadRecommendation}>
             What proof should I upload?
           </button>

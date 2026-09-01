@@ -35,7 +35,9 @@ class Status(str, Enum):
 # Valid state-machine transitions (docs/00-design-overview.md)
 TRANSITIONS: dict[Status, set[Status]] = {
     Status.reported: {Status.triaged, Status.cancelled},
-    Status.triaged: {Status.in_progress},
+    # triaged → pending_verification: resolved on arrival (someone already
+    # cleaned up / reporter self-serviced) — proof still required, work never starts
+    Status.triaged: {Status.in_progress, Status.pending_verification},
     Status.in_progress: {Status.pending_verification},
     Status.pending_verification: {Status.verified, Status.in_progress},
     Status.verified: {Status.closed, Status.in_progress},

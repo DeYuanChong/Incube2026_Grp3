@@ -38,10 +38,12 @@ def notifications_for(event: dict) -> list[dict]:
         passed = p.get("passed_relevance")
         relevance = ("passed the automated relevance check" if passed
                      else "needs human review (relevance inconclusive)")
+        arrival = (" Reported as already resolved on arrival (no work performed)."
+                   if p.get("resolved_on_arrival") else "")
         return [{
             **common, "target_role": "admin",
             "title": "Proof of work uploaded — verification needed",
-            "body": f"Proof by {p.get('uploaded_by')} {relevance}. Please verify the fix.",
+            "body": f"Proof by {p.get('uploaded_by')} {relevance}.{arrival} Please verify the fix.",
         }]
 
     if event_type == "proof.rejected":
