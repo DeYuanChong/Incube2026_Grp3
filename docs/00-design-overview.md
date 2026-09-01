@@ -56,7 +56,7 @@ never hold their own copy of an issue's status as the source of truth.
 |---|---|---|
 | `[*] → reported` | **Reporting** | `POST /issues` (reporter, via frontend). Reporting also runs AI categorization + ETA here. |
 | `reported → triaged` | **Triage** | Auto-pipeline on the `issue.created` event (admin confirm/override optional) → `POST /issues/{id}/triage-result` on reporting. |
-| `triaged → in_progress` | **Fix & Verify** | Work order created on `issue.triaged` event — for a **systemic** fault the issue is escalated to the admin instead and the work order is created on `issue.dispatched`, after the admin accepts or edits the triage agent's brief (see [05](05-triage-analytics.md)). Then `POST /work-orders/{id}/start` → reporting status API. |
+| `triaged → in_progress` | **Fix & Verify** | Work order created on `issue.triaged` event; `POST /work-orders/{id}/start` → reporting status API. |
 | `triaged → pending_verification` (resolved on arrival) | **Fix & Verify** | Maintenance arrives and finds the defect already resolved (e.g. a spill someone else cleaned up, or the reporter self-serviced): a proof is uploaded on the still-`open` work order — the AI relevance check and human verification still apply, but `in_progress` is skipped. Work order is marked `resolved_on_arrival`; closure typically uses `resolution_type: self_resolved`. |
 | `in_progress → pending_verification` | **Fix & Verify** | Proof upload passes the AI relevance check → reporting status API. |
 | proof rejected (stays `in_progress`) | **Fix & Verify** | Vision model verdict `irrelevant` → HTTP 422 to the uploader with the reason; emits `proof.rejected`. No status change. |

@@ -91,10 +91,7 @@ The reference is a facilities job-request export. We adapted it as follows:
 `severity_rationale` (LLM explanation), `equipment_extracted`,
 `duplicate_of_issue_id`, `duplicate_confidence`, `systemic_flag` (bool),
 `systemic_cluster_id`, `admin_confirmed` (bool), `admin_override_severity`,
-`escalation_brief` (TEXT, nullable — LLM description + recommendation for a
-systemic fault; overwritten in place if the admin edits it before dispatch),
-`dispatched_by` (TEXT, nullable), `dispatched_at` (TIMESTAMP, nullable — until
-set, a systemic issue has no work order), `created_at`
+`created_at`
 
 ### `triage.issue_facts` (local analytics snapshot, refreshed from reporting)
 Denormalized copy of the issue fields needed for analytics:
@@ -113,9 +110,8 @@ Denormalized copy of the issue fields needed for analytics:
 `is_temporary_fix` (bool), `resolved_on_arrival` (bool — defect was already
 resolved when maintenance arrived, e.g. a spill someone else cleaned up or a
 reporter self-service; the issue skips `in_progress` entirely),
-`instruction` (TEXT, nullable — the admin's dispatch brief for a systemic
-fault; what the maintainer is actually asked to do), `evidence_recommendation`
-(JSON: recommended proof types + rationale), `requires_human_verification` (bool — true when the defect
+`evidence_recommendation` (JSON: recommended proof
+types + rationale), `requires_human_verification` (bool — true when the defect
 is not visually verifiable, e.g. smells/noise), `started_at`, `completed_at`
 
 ### `fixverify.proofs`

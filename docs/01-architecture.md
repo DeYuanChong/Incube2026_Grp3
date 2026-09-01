@@ -93,9 +93,7 @@ flowchart LR
 | Event | Producer | Consumers |
 |---|---|---|
 | `issue.created` | reporting | triage (auto-triage), notification |
-| `issue.triaged` | triage | fixverify (create work order — **skipped when `systemic_flag`**, see `issue.dispatched`), notification, reporting (already patched via REST) |
-| `issue.escalated` | triage | notification (admin: systemic fault needs review) |
-| `issue.dispatched` | triage | fixverify (create work order carrying the admin's brief), notification |
+| `issue.triaged` | triage | fixverify (create work order), notification, reporting (already patched via REST) |
 | `issue.status_changed` | reporting | notification |
 | `work_order.started` | fixverify | notification |
 | `proof.uploaded` | fixverify | notification (tell admin if it passed relevance) |
