@@ -44,6 +44,38 @@ stateDiagram-v2
     closed --> [*]
 ```
 
+## Microservice boundaries across the lifecycle
+
+**Reporting is the single writer of issue state.** Every status transition above
+is executed by the reporting service, which enforces the state machine in one
+place. The other services *drive* transitions by calling reporting's API — they
+never hold their own copy of an issue's status as the source of truth.
+
+| Transition | Driven by | How |
+|---|---|---|
+| `[*] → reported` | **Reporting** | `POST /issues` (reporter, via frontend). Reporting also runs AI categorization + ETA here. |
+| `reported → triaged` | **Triage** | Auto-pipeline on the `issue.created` event (admin confirm/override optional) → `POST /issues/{id}/triage-result` on reporting. |
+| `triaged → in_progress` | **Fix & Verify** | Work order created on `issue.triaged` event; `POST /work-orders/{id}/start` → reporting status API. |
+| `in_progress → pending_verification` | **Fix & Verify** | Proof upload passes the AI relevance check → reporting status API. |
+| proof rejected (stays `in_progress`) | **Fix & Verify** | Vision model verdict `irrelevant` → HTTP 422 to the uploader with the reason; emits `proof.rejected`. No status change. |
+| `pending_verification → verified` / `→ in_progress` | **Fix & Verify** | Admin's `POST /proofs/{id}/human-verify` (approve/reject) → reporting status API. |
+| `verified → closed` | **Reporting** | `POST /issues/{id}/close` — by the reporter (confirm), an admin, or auto-close after the grace period. |
+| `verified → in_progress` (dispute) | **Reporting** | Reporter disputes via the status API; fixverify picks the work order back up. |
+| `reported → cancelled` | **Reporting** | `POST /issues/{id}/cancel` by the reporter. |
+
+Boundaries of what each service owns (and explicitly does *not*):
+
+| Service | Owns | Does NOT own |
+|---|---|---|
+| **Reporting** | The `issues` table, the status state machine, timeline, reference numbers, categorization suggestions, ETA. | Severity/urgency *decisions* (it stores what triage tells it), work orders, proofs, notifications. |
+| **Triage** | Triage results, its own `issue_facts` analytics snapshot, systemic clusters, MTBF/MTTR. | Issue status — it writes results back through reporting's API only. It reads issues via REST, never reporting's DB. |
+| **Fix & Verify** | Work orders, uploaded proof files, AI relevance verdicts, human verification records. | Issue status (requests transitions via reporting), triage decisions, who gets notified. |
+| **Notification** | The notification inbox and the event→notification rules. | Any issue/work-order state; it is a pure consumer of events. |
+| **Gateway** | Routing and event fan-out (`subscriptions.py`). | No domain data at all — stateless. |
+
+Cross-cutting rule: services communicate only via REST APIs and gateway events;
+no service ever opens another service's SQLite file.
+
 ## Non-goals (for this PoC)
 
 - Real authentication / SSO, multi-tenancy
