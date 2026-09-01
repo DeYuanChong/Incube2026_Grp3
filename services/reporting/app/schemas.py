@@ -46,3 +46,15 @@ class CloseRequest(BaseModel):
 
 class CancelRequest(BaseModel):
     reason: str
+
+
+class SuggestDescriptionRequest(BaseModel):
+    title: str = Field(min_length=3, max_length=200)
+    category: Category | None = None
+    building: str | None = None
+    floor: str | None = None
+
+
+class SuggestDescriptionResponse(BaseModel):
+    description: str | None = None
+    confidence: float | None = None

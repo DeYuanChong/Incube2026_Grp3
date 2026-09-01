@@ -12,7 +12,7 @@ from openai import OpenAI
 
 from . import config
 from .models import Category
-from .prompts import CATEGORIZE
+from .prompts import CATEGORIZE, SUGGEST_DESCRIPTION
 
 log = logging.getLogger(__name__)
 
@@ -60,4 +60,27 @@ def suggest_category(
         }
     except Exception:
         log.warning("categorization call failed; keeping user category", exc_info=True)
+        return None
+
+
+def suggest_description(title: str, category: str | None, location: str | None) -> dict | None:
+    """Returns {"description": str, "confidence": float} or None."""
+    prompt = SUGGEST_DESCRIPTION.format(
+        title=title,
+        category=category or "not specified",
+        location=location or "not specified",
+    )
+    try:
+        resp = _client.chat.completions.create(
+            model=config.VLLM_TEXT_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+        )
+        data = _extract_json(resp.choices[0].message.content or "")
+        description = (data or {}).get("description", "").strip()
+        if not description:
+            return None
+        return {"description": description, "confidence": float(data.get("confidence", 0.5))}
+    except Exception:
+        log.warning("description suggestion call failed; returning no suggestion", exc_info=True)
         return None
