@@ -26,3 +26,21 @@ BASE_DAYS = {
     "others": 5.0,
 }
 SEVERITY_MULT = {"critical": 0.5, "high": 0.75, "medium": 1.0, "low": 1.5}
+
+# SLA breach (agreed rule): an issue is in breach once it has been open longer
+# than SLA_BREACH_DAYS and has not reached a settled status. "Settled" starts at
+# pending_verification because the repair is done by then — what remains is
+# proof and sign-off, which the ageing clock should not keep punishing.
+SLA_BREACH_DAYS = int(os.getenv("SLA_BREACH_DAYS", "30"))
+SLA_SETTLED_STATUSES = ("pending_verification", "verified", "closed", "cancelled")
+
+# Role scoping for the dashboard. Reporters see only what they filed;
+# maintenance sees only work that has reached their end of the pipeline.
+MAINTENANCE_STATUSES = (
+    "in_progress",
+    "pending_verification",
+    "verified",
+    "closed",
+    "cancelled",
+)
+OPEN_EXCLUDED_STATUSES = ("closed", "cancelled")

@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  body { margin:0; background:#F5F7FB; font-family:'Instrument Sans', system-ui, sans-serif; -webkit-font-smoothing:antialiased; color:#0B1220; }
+  a { color:#1B65F8; text-decoration:none; }
+  a:hover { color:#0B4AD1; }
+  *::-webkit-scrollbar { width:10px; height:10px; }
+  *::-webkit-scrollbar-thumb { background:#DDE3EC; border-radius:8px; border:3px solid #F5F7FB; }
+  @keyframes aiPulse { 0%,100% { opacity:.55; } 50% { opacity:1; } }
+</style>
+</helmet>
+
+<div style="display:flex;min-height:100vh;background:#F5F7FB">
+
+  <!-- SIDEBAR -->
+  <div style="width:236px;flex:0 0 236px;background:#FFFFFF;border-right:1px solid #E6EAF0;display:flex;flex-direction:column;position:sticky;top:0;height:100vh">
+    <div style="padding:20px 18px 16px 18px;display:flex;align-items:center;gap:11px">
+      <div style="width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#1B65F8,#00DCFF);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px;letter-spacing:-.3px">CPS</div>
+      <div>
+        <div style="font-size:13.5px;font-weight:600;letter-spacing:-.2px">Defects Portal</div>
+        <div style="font-size:11px;color:#8A94A6">Corporate Planning &amp; Services</div>
+      </div>
+    </div>
+
+    <div style="padding:4px 10px;display:flex;flex-direction:column;gap:2px">
+      <sc-for list="{{ nav }}" as="item" hint-placeholder-count="2">
+        <div onClick="{{ item.onClick }}" style="{{ item.style }}">
+          <span style="display:flex;align-items:center;gap:10px;min-width:0">
+            <span style="{{ item.dot }}"></span>
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ item.label }}</span>
+          </span>
+          <span style="{{ item.badgeStyle }}">{{ item.badge }}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="margin-top:auto;padding:14px;border-top:1px solid #F2F4F8">
+      <div style="display:flex;align-items:center;gap:9px;padding:0 3px">
+        <div style="width:28px;height:28px;border-radius:50%;background:#E8EEFB;color:#1B65F8;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center">SL</div>
+        <div style="line-height:1.3">
+          <div style="font-size:12px;font-weight:600">Serene Lim</div>
+          <div style="font-size:10.5px;color:#8A94A6">Admin, CPS</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+
+    <div style="height:62px;flex:0 0 62px;background:#fff;border-bottom:1px solid #E6EAF0;display:flex;align-items:center;justify-content:space-between;padding:0 26px;position:sticky;top:0;z-index:5">
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <div style="font-size:17px;font-weight:600;letter-spacing:-.3px">{{ screenTitle }}</div>
+        <div style="font-size:12.5px;color:#8A94A6">{{ screenSub }}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:9px">
+        <div style="width:28px;height:28px;border-radius:50%;background:#E8EEFB;color:#1B65F8;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center">SL</div>
+        <div style="font-size:12px;color:#5B6472">Serene Lim</div>
+      </div>
+    </div>
+
+    <div style="padding:22px 26px 40px 26px">
+
+      <!-- ============ DEFECTS MANAGEMENT ============ -->
+      <sc-if value="{{ isDefects }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;flex-direction:column;gap:18px">
+
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px">
+            <sc-for list="{{ kpis }}" as="k" hint-placeholder-count="4">
+              <div onClick="{{ k.onClick }}" style="{{ k.cardStyle }}">
+                <div style="font-size:11.5px;color:#8A94A6;font-weight:500;letter-spacing:.02em;text-transform:uppercase">{{ k.label }}</div>
+                <div style="display:flex;align-items:flex-end;gap:8px;margin-top:9px">
+                  <div style="font-size:29px;font-weight:600;letter-spacing:-1px;line-height:1;font-family:'IBM Plex Mono',monospace">{{ k.value }}</div>
+                  <div style="{{ k.deltaStyle }}">{{ k.delta }}</div>
+                </div>
+                <div style="font-size:11.5px;color:#8A94A6;margin-top:7px">{{ k.note }}</div>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="background:#fff;border:1px solid #E6EAF0;border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="font-size:11.5px;color:#8A94A6;font-weight:500;width:62px">Category</span>
+              <sc-for list="{{ catFilters }}" as="f" hint-placeholder-count="7">
+                <div onClick="{{ f.onClick }}" style="{{ f.style }}">{{ f.label }}</div>
+              </sc-for>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="font-size:11.5px;color:#8A94A6;font-weight:500;width:62px">Status</span>
+              <sc-for list="{{ statusFilters }}" as="f" hint-placeholder-count="6">
+                <div onClick="{{ f.onClick }}" style="{{ f.style }}">{{ f.label }}</div>
+              </sc-for>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="font-size:11.5px;color:#8A94A6;font-weight:500;width:62px">Severity</span>
+              <sc-for list="{{ sevFilters }}" as="f" hint-placeholder-count="5">
+                <div onClick="{{ f.onClick }}" style="{{ f.style }}">{{ f.label }}</div>
+              </sc-for>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid #F2F4F8;padding-top:12px;flex-wrap:wrap">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <span style="font-size:11.5px;color:#8A94A6;font-weight:500;width:62px">Age / SLA</span>
+                <sc-for list="{{ ageFilters }}" as="f" hint-placeholder-count="4">
+                  <div onClick="{{ f.onClick }}" style="{{ f.style }}">{{ f.label }}</div>
+                </sc-for>
+              </div>
+              <div style="display:flex;align-items:center;gap:14px">
+                <div onClick="{{ clearFilters }}" style="font-size:12px;color:#1B65F8;font-weight:500;cursor:pointer">Clear filters</div>
+                <span style="font-size:11.5px;color:#8A94A6">Severity display</span>
+                <div style="display:flex;background:#F5F7FB;border:1px solid #E6EAF0;border-radius:9px;padding:2px">
+                  <sc-for list="{{ sevViewToggle }}" as="t" hint-placeholder-count="2">
+                    <div onClick="{{ t.onClick }}" style="{{ t.style }}">{{ t.label }}</div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="background:#fff;border:1px solid #E6EAF0;border-radius:14px;overflow:hidden">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 17px;border-bottom:1px solid #EEF1F6;flex-wrap:wrap">
+              <div style="display:flex;align-items:center;gap:8px;background:#F5F7FB;border:1px solid #E6EAF0;border-radius:10px;padding:8px 12px;width:300px">
+                <span style="color:#8A94A6;font-size:13px">⌕</span>
+                <input value="{{ q }}" onChange="{{ onSearch }}" placeholder="Search ID, location, keyword" style="border:0;outline:0;background:transparent;font-family:inherit;font-size:12.5px;width:100%;color:#0B1220" />
+              </div>
+              <div style="font-size:13px;color:#5B6472"><span style="font-weight:600;color:#0B1220">{{ resultCount }}</span> defects match</div>
+            </div>
+
+            <div style="overflow-x:auto">
+              <div style="display:grid;grid-template-columns:104px minmax(220px,1fr) 168px 210px 150px 96px;gap:12px;padding:10px 17px;background:#FAFBFD;border-bottom:1px solid #EEF1F6;font-size:11px;color:#8A94A6;font-weight:600;letter-spacing:.04em;text-transform:uppercase;min-width:1020px">
+                <div>ID</div><div>Defect</div><div>Location</div><div>Status</div><div>Severity</div><div style="text-align:right">Age / SLA</div>
+              </div>
+
+              <sc-for list="{{ rows }}" as="d" hint-placeholder-count="10">
+                <div onClick="{{ d.onOpen }}" style="{{ d.rowStyle }}">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#5B6472;min-width:0;overflow:hidden;text-overflow:ellipsis">{{ d.id }}</div>
+                  <div style="min-width:0">
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <span style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ d.title }}</span>
+                      <span style="{{ d.alertStyle }}">{{ d.alertLabel }}</span>
+                    </div>
+                    <div style="font-size:11.5px;color:#8A94A6;margin-top:3px">{{ d.category }} · {{ d.reportsLabel }}</div>
+                    <sc-if value="{{ d.over30 }}" hint-placeholder-val="{{ false }}">
+                      <div style="display:flex;align-items:center;gap:9px;margin-top:8px;background:linear-gradient(135deg,#1B65F8,#00DCFF);padding:1.5px;border-radius:10px">
+                        <div style="background:#fff;border-radius:8.5px;padding:7px 9px;display:flex;align-items:center;gap:9px;width:100%;box-sizing:border-box">
+                          <span style="font-size:11px;line-height:1.4;color:#5B6472;flex:1;min-width:0">{{ d.aiPrompt }}</span>
+                          <span onClick="{{ d.onRemind }}" style="flex:0 0 auto;background:linear-gradient(135deg,#1B65F8,#00DCFF);color:#fff;font-size:11px;font-weight:600;padding:6px 10px;border-radius:8px;cursor:pointer">✦ Remind vendor</span>
+                        </div>
+                      </div>
+                    </sc-if>
+                  </div>
+                  <div style="color:#5B6472;font-size:12.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ d.locationLabel }}</div>
+                  <div style="display:flex;align-items:center;gap:7px;min-width:0">
+                    <span style="{{ d.statusDot }}"></span>
+                    <span style="font-size:12.5px;color:#3B4453;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ d.status }}</span>
+                  </div>
+                  <div style="min-width:0">
+                    <sc-if value="{{ sevChips }}" hint-placeholder-val="{{ true }}">
+                      <div style="display:flex;align-items:center;gap:6px">
+                        <span style="{{ d.sevChip }}">{{ d.sevLabel }}</span>
+                        <sc-if value="{{ d.bumped }}" hint-placeholder-val="{{ false }}">
+                          <span style="font-size:10.5px;font-weight:600;color:#1B65F8">▲ bumped</span>
+                        </sc-if>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ sevBars }}" hint-placeholder-val="{{ false }}">
+                      <div>
+                        <div style="display:flex;gap:3px;align-items:center">
+                          <sc-for list="{{ d.sevTicks }}" as="t" hint-placeholder-count="4">
+                            <span style="{{ t.style }}"></span>
+                          </sc-for>
+                          <span style="font-size:11px;color:#5B6472;margin-left:5px;font-weight:500">{{ d.sevLabel }}</span>
+                        </div>
+                        <div style="font-size:10.5px;color:#8A94A6;margin-top:4px">{{ d.escalationNote }}</div>
+                      </div>
+                    </sc-if>
+                  </div>
+                  <div style="text-align:right;min-width:0">
+                    <div style="font-size:12px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#3B4453">{{ d.ageLabel }}</div>
+                    <div style="{{ d.slaStyle }}">{{ d.slaLabel }}</div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ============ DETAIL ============ -->
+      <sc-if value="{{ isDetail }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <div onClick="{{ goDefects }}" style="font-size:12.5px;color:#5B6472;cursor:pointer;width:fit-content">← All defects</div>
+
+          <div style="background:#fff;border:1px solid #E6EAF0;border-radius:14px;padding:18px 20px">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px">
+              <div style="min-width:0">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#5B6472">{{ sel.id }}</span>
+                  <span style="{{ sel.sevChip }}">{{ sel.sevLabel }}</span>
+                  <sc-if value="{{ sel.bumped }}" hint-placeholder-val="{{ false }}">
+                    <span style="font-size:11px;font-weight:600;color:#1B65F8;background:#EAF1FE;border-radius:6px;padding:3px 7px">▲ bumped from {{ sel.sevFrom }} · {{ sel.reports }} reporters this week</span>
+                  </sc-if>
+                </div>
+                <div style="font-size:20px;font-weight:600;letter-spacing:-.4px;margin-top:8px">{{ sel.title }}</div>
+                <div style="font-size:12.5px;color:#5B6472;margin-top:6px">{{ sel.category }} · {{ sel.locationLabel }} · Room {{ sel.room }} · reported {{ sel.ageLabel }} ago</div>
+              </div>
+              <div style="display:flex;gap:9px;flex:0 0 auto">
+                <div onClick="{{ sel.onRemind }}" style="background:linear-gradient(135deg,#1B65F8,#00DCFF);color:#fff;font-size:12.5px;font-weight:600;padding:10px 15px;border-radius:10px;cursor:pointer">✦ Remind vendor</div>
+                <div style="border:1px solid #E6EAF0;color:#3B4453;font-size:12.5px;font-weight:500;padding:10px 15px;border-radius:10px;cursor:pointer">Close loop</div>
+              </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:18px;padding-top:16px;border-top:1px solid #F2F4F8">
+              <sc-for list="{{ sel.stats }}" as="s" hint-placeholder-count="5">
+                <div>
+                  <div style="font-size:11px;color:#8A94A6;font-weight:500;letter-spacing:.03em;text-transform:uppercase">{{ s.label }}</div>
+                  <div style="{{ s.valueStyle }}">{{ s.value }}</div>
+                  <div style="font-size:11px;color:#8A94A6;margin-top:3px">{{ s.note }}</div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1.45fr 1fr;gap:16px;align-items:start">
+
+            <div style="display:flex;flex-direction:column;gap:16px">
+              <div style="background:#fff;border:1px solid #E6EAF0;border-radius:14px;padding:17px 18px">
+                <div style="font-size:13.5px;font-weight:600;margin-bottom:13px">Submission</div>
+                <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:13px">
+                  <sc-for list="{{ sel.fields }}" as="f" hint-placeholder-count="4">
+                    <div>
+                      <div style="font-size:11px;color:#8A94A6;font-weight:500;margin-bottom:5px">{{ f.label }}</div>
+                      <div style="border:1px solid #E6EAF0;border-radius:10px;padding:9px 11px;font-size:12.5px;background:#FAFBFD;color:#3B4453">{{ f.value }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="font-size:11px;color:#8A94A6;font-weight:500;margin:14px 0 5px 0">Describe more</div>
+                <div style="border:1px solid #E6EAF0;border-radius:10px;padding:11px 12px;font-size:12.5px;line-height:1.6;background:#FAFBFD;color:#3B4453">{{ sel.description }}</div>
+
+                <div style="display:flex;gap:10px;margin-top:13px">
+                  <sc-for list="{{ sel.photos }}" as="p" hint-placeholder-count="3">
+                    <div style="width:104px;height:78px;border-radius:10px;border:1px dashed #D8DEE8;background:#F7F9FC;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#98A2B3;font-size:10.5px">
+                      <span style="font-size:15px">⬒</span>
+                      <span>{{ p.label }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+
+              <div style="background:#fff;border:1px solid #E6EAF0;border-radius:14px;padding:17px 18px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:13px;gap:12px">
+                  <div style="font-size:13.5px;font-weight:600">Triage</div>
+                  <div style="font-size:11px;color:#8A94A6">AI-suggested fields carry a gradient outline — review before saving</div>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:13px">
+                  <sc-for list="{{ sel.triage }}" as="t" hint-placeholder-count="4">
+                    <div>
+                      <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
+                        <span style="font-size:11px;color:#8A94A6;font-weight:500">{{ t.label }}</span>
+                        <sc-if value="{{ t.ai }}" hint-placeholder-val="{{ true }}">
+                          <span style="font-size:9.5px;font-weight:700;letter-spacing:.06em;background:linear-gradient(90deg,#1B65F8,#00DCFF);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent">AI</span>
+                        </sc-if>
+                      </div>
+                      <div style="{{ t.wrapStyle }}">
+                        <div style="background:#fff;border-radius:9px;padding:9px 11px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+                          <span style="font-size:12.5px;color:#0B1220;font-weight:500">{{ t.value }}</span>
+                          <span style="font-size:11px;color:#8A94A6">{{ t.meta }}</span>
+                        </div>
+                      </div>
+                      <div style="font-size:11px;color:#8A94A6;margin-top:5px;line-height:1.45">{{ t.hint }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+
+              <div style="background:#fff;border:1px solid #E6EAF0;border-radius:14px;padding:17px 18px">
+                <div style="font-size:13.5px;font-weight:600;margin-bottom:4px">Fix &amp; verify</div>
+                <div style="font-size:11.5px;color:#8A94A6;margin-bottom:13px">First-cut verification from vendor proof, then CPS sign-off.</div>
+                <div style="display:flex;flex-direction:column;gap:10px">
+                  <sc-for list="{{ sel.verification }}" as="v" hint-placeholder-count="3">
+                    <div style="display:flex;align-items:center;gap:12px;border:1px solid #EEF1F6;border-radius:11px;padding:11px 13px">
+                      <span style="{{ v.iconStyle }}">{{ v.icon }}</span>
+                      <div style="flex:1;min-width:0">
+                        <div style="font-size:12.5px;font-weight:500">{{ v.label }}</div>
+                        <div style="font-size:11px;color:#8A94A6;margin-top:2px">{{ v.note }}</div>
+                      </div>
+                      <span style="{{ v.stateStyle }}">{{ v.state }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="background:linear-gradient(135deg,#1B65F8,#00DCFF);padding:1.5px;border-radius:12px;margin-top:13px">
+                  <div style="background:#fff;border-radius:10.5px;padding:12px 13px">
+                    <div style="font-size:11.5px;font-weight:600;background:linear-gradient(90deg,#1B65F8,#00DCFF);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:5px">Proof recommendation</div>
+                    <div style="font-size:12px;line-height:1.55;color:#3B4453">{{ sel.proofRec }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:16px">
+              <div style="background:#fff;border:1px solid #E6EAF0;border-radius:14px;padding:17px 18px">
+                <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:13px">
+                  <div style="font-size:13.5px;font-weight:600">Timeline</div>
+                  <div onClick="{{ sel.onToggleTimeline }}" style="{{ sel.timelineToggleStyle }}">{{ sel.timelineToggleLabel }}</div>
+                </div>
+                <div style="display:flex;flex-direction:column">
+                  <sc-for list="{{ sel.timeline }}" as="e" hint-placeholder-count="5">
+                    <div style="display:grid;grid-template-columns:16px 1fr;gap:12px">
+                      <div style="display:flex;flex-direction:column;align-items:center">
+                        <span style="{{ e.dotStyle }}"></span>
+                        <span style="{{ e.lineStyle }}"></span>
+                      </div>
+                      <div style="padding-bottom:16px">
+                        <div style="font-size:12.5px;font-weight:500;line-height:1.4">{{ e.label }}</div>
+                        <div style="font-size:11px;color:#8A94A6;margin-top:3px">{{ e.when }} · {{ e.who }}</div>
+                        <div style="{{ e.noteStyle }}">{{ e.note }}</div>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ============ AI INSIGHTS ============ -->
+      <sc-if value="{{ isInsights }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;gap:16px">
+
+          <div style="background:linear-gradient(120deg,#1B65F8,#00DCFF);border-radius:16px;padding:20px 22px;color:#fff;display:flex;align-items:center;justify-content:space-between;gap:20px">
+            <div style="max-width:620px">
+              <div style="font-size:11.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;opacity:.85">CPS Agent</div>
+              <div style="font-size:19px;font-weight:600;letter-spacing:-.3px;margin-top:7px;line-height:1.35">{{ insightsHeadline }}</div>
+              <div style="font-size:12.5px;line-height:1.55;margin-top:8px;opacity:.9">Signals drawn from MTBF, repeat-report clustering, equipment age and vendor fix history across the last 12 months.</div>
+            </div>
+            <div style="display:flex;gap:18px;flex:0 0 auto">
+              <sc-for list="{{ insightStats }}" as="s" hint-placeholder-count="3">
+                <div style="text-align:right">
+                  <div style="font-size:26px;font-weight:600;font-family:'IBM Plex Mono',monospace;letter-spacing:-1px">{{ s.value }}</div>
+                  <div style="font-size:11px;opacity:.85;margin-top:2px">{{ s.label }}</div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <div style="display:flex;gap:8px">
+              <sc-for list="{{ insightKindFilters }}" as="f" hint-placeholder-count="3">
+                <div onClick="{{ f.onClick }}" style="{{ f.style }}">{{ f.label }}</div>
+              </sc-for>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-size:11.5px;color:#8A94A6">Surface as</span>
+              <div style="display:flex;background:#fff;border:1px solid #E6EAF0;border-radius:9px;padding:2px">
+                <sc-for list="{{ insightViewToggle }}" as="t" hint-placeholder-count="2">
+                  <div onClick="{{ t.onClick }}" style="{{ t.style }}">{{ t.label }}</div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+
+          <sc-if value="{{ insightCards }}" hint-placeholder-val="{{ true }}">
+            <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px">
+              <sc-for list="{{ insights }}" as="i" hint-placeholder-count="4">
+                <div style="background:linear-gradient(135deg,#1B65F8,#00DCFF);padding:1.5px;border-radius:15px">
+                  <div style="background:#fff;border-radius:13.5px;padding:17px 18px;height:100%;box-sizing:border-box">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+                      <span style="{{ i.kindChip }}">{{ i.kind }}</span>
+                      <span style="font-size:11px;color:#8A94A6;font-family:'IBM Plex Mono',monospace">confidence {{ i.confidence }}</span>
+                    </div>
+                    <div style="font-size:15px;font-weight:600;letter-spacing:-.2px;margin-top:11px;line-height:1.35">{{ i.title }}</div>
+                    <div style="font-size:12.5px;line-height:1.6;color:#5B6472;margin-top:8px">{{ i.body }}</div>
+                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px;padding:12px 0;border-top:1px solid #F2F4F8;border-bottom:1px solid #F2F4F8">
+                      <sc-for list="{{ i.metrics }}" as="m" hint-placeholder-count="3">
+                        <div>
+                          <div style="font-size:10.5px;color:#8A94A6;text-transform:uppercase;letter-spacing:.04em;font-weight:600">{{ m.label }}</div>
+                          <div style="font-size:14px;font-weight:600;font-family:'IBM Plex Mono',monospace;margin-top:4px">{{ m.value }}</div>
+                        </div>
+                      </sc-for>
+                    </div>
+                    <div style="font-size:11px;color:#8A94A6;font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin-top:12px">Recommended action</div>
+                    <div style="font-size:12.5px;line-height:1.55;color:#3B4453;margin-top:5px">{{ i.action }}</div>
+                    <div style="display:flex;gap:8px;margin-top:13px;flex-wrap:wrap">
+                      <div style="background:linear-gradient(135deg,#1B65F8,#00DCFF);color:#fff;font-size:12px;font-weight:600;padding:8px 13px;border-radius:9px;cursor:pointer">{{ i.cta }}</div>
+                      <div style="border:1px solid #E6EAF0;color:#5B6472;font-size:12px;font-weight:500;padding:8px 13px;border-radius:9px;cursor:pointer">See {{ i.linked }} defects</div>
+                      <div style="border:1px solid #E6EAF0;color:#8A94A6;font-size:12px;font-weight:500;padding:8px 13px;border-radius:9px;cursor:pointer">Dismiss</div>
+                    </div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ insightFeed }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#fff;border:1px solid #E6EAF0;border-radius:15px;overflow:hidden">
+              <sc-for list="{{ insights }}" as="i" hint-placeholder-count="4">
+                <div style="display:grid;grid-template-columns:4px 1fr 250px;border-bottom:1px solid #F2F4F8">
+                  <div style="background:linear-gradient(180deg,#1B65F8,#00DCFF)"></div>
+                  <div style="padding:16px 18px;min-width:0">
+                    <div style="display:flex;align-items:center;gap:10px">
+                      <span style="{{ i.kindChip }}">{{ i.kind }}</span>
+                      <span style="font-size:11px;color:#8A94A6">{{ i.window }} · confidence {{ i.confidence }}</span>
+                    </div>
+                    <div style="font-size:14.5px;font-weight:600;margin-top:9px;letter-spacing:-.2px">{{ i.title }}</div>
+                    <div style="font-size:12.5px;line-height:1.6;color:#5B6472;margin-top:6px;max-width:760px">{{ i.body }}</div>
+                    <div style="display:flex;gap:22px;margin-top:12px;flex-wrap:wrap">
+                      <sc-for list="{{ i.metrics }}" as="m" hint-placeholder-count="3">
+                        <div style="display:flex;align-items:baseline;gap:7px">
+                          <span style="font-size:13.5px;font-weight:600;font-family:'IBM Plex Mono',monospace">{{ m.value }}</span>
+                          <span style="font-size:11px;color:#8A94A6">{{ m.label }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </div>
+                  <div style="padding:16px 18px;border-left:1px solid #F2F4F8;background:#FAFBFD">
+                    <div style="font-size:10.5px;color:#8A94A6;font-weight:600;letter-spacing:.04em;text-transform:uppercase">Action</div>
+                    <div style="font-size:12px;line-height:1.5;color:#3B4453;margin-top:6px">{{ i.action }}</div>
+                    <div style="background:linear-gradient(135deg,#1B65F8,#00DCFF);color:#fff;font-size:11.5px;font-weight:600;padding:7px 12px;border-radius:9px;cursor:pointer;margin-top:11px;width:fit-content">{{ i.cta }}</div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+    </div>
+  </div>
+
+  <!-- REMIND MODAL -->
+  <sc-if value="{{ remindOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeRemind }}" style="position:fixed;inset:0;background:rgba(11,18,32,.38);display:flex;align-items:center;justify-content:center;z-index:40;padding:40px">
+      <div onClick="{{ stop }}" style="background:linear-gradient(135deg,#1B65F8,#00DCFF);padding:1.5px;border-radius:17px;width:560px;max-width:100%">
+        <div style="background:#fff;border-radius:15.5px;padding:22px 24px">
+          <div style="display:flex;align-items:center;gap:9px">
+            <span style="width:9px;height:9px;border-radius:50%;background:linear-gradient(135deg,#1B65F8,#00DCFF);animation:aiPulse 2.2s ease-in-out infinite"></span>
+            <span style="font-size:12.5px;font-weight:600;background:linear-gradient(90deg,#1B65F8,#00DCFF);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent">CPS Agent drafted a reminder</span>
+          </div>
+          <div style="font-size:17px;font-weight:600;letter-spacing:-.3px;margin-top:11px">{{ remindTitle }}</div>
+          <div style="font-size:12px;color:#8A94A6;margin-top:4px">{{ remindMeta }}</div>
+
+          <div style="background:linear-gradient(135deg,#1B65F8,#00DCFF);padding:1.5px;border-radius:12px;margin-top:16px">
+            <div style="background:#fff;border-radius:10.5px;padding:14px 15px;font-size:12.5px;line-height:1.65;color:#3B4453;white-space:pre-line">{{ remindBody }}</div>
+          </div>
+
+          <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+            <sc-for list="{{ remindOptions }}" as="o" hint-placeholder-count="3">
+              <div style="border:1px solid #E6EAF0;border-radius:9px;padding:7px 11px;font-size:11.5px;color:#5B6472;cursor:pointer">{{ o.label }}</div>
+            </sc-for>
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:20px;padding-top:16px;border-top:1px solid #F2F4F8;gap:12px">
+            <div style="font-size:11.5px;color:#8A94A6">Sends to vendor PIC + copies Facilities Manager</div>
+            <div style="display:flex;gap:9px">
+              <div onClick="{{ closeRemind }}" style="border:1px solid #E6EAF0;color:#5B6472;font-size:12.5px;font-weight:500;padding:9px 15px;border-radius:10px;cursor:pointer">Cancel</div>
+              <div onClick="{{ closeRemind }}" style="background:linear-gradient(135deg,#1B65F8,#00DCFF);color:#fff;font-size:12.5px;font-weight:600;padding:9px 16px;border-radius:10px;cursor:pointer">Send reminder</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:940}}">
+const SEV = {
+  Critical: { c: '#E5484D', bg: '#FDECEC', rank: 4 },
+  High: { c: '#D9480F', bg: '#FDF0E7', rank: 3 },
+  Medium: { c: '#B07A0C', bg: '#FDF6E3', rank: 2 },
+  Low: { c: '#5B6472', bg: '#F1F4F8', rank: 1 }
+};
+const STATUS_COLOR = {
+  'New': '#1B65F8',
+  'Triaged': '#00A0C4',
+  'Assigned to vendor': '#7C5CFF',
+  'Pending equipment/tools': '#F5A524',
+  'Work in progress': '#0EA5A5',
+  'Pending verification': '#8A94A6',
+  'Completed': '#12A150',
+  'Closed': '#5B6472'
+};
+
+const chip = (c, bg) => `display:inline-flex;align-items:center;font-size:11px;font-weight:600;padding:4px 9px;border-radius:7px;color:${c};background:${bg};white-space:nowrap`;
+
+const DEFECTS = [
+  { id: 'DR-2402', title: 'Aircon cycles off after 20 minutes, meeting room unusable', category: 'Air-Conditioning', level: 8, wing: 'Front Wing', room: '08-MR2', status: 'Pending equipment/tools', sev: 'Critical', sevFrom: 'High', reports: 4, age: 34, sla: 30, vendor: 'IFM Alpha', mobile: '+65 9088 3312', desc: 'Unit shuts off roughly 20 minutes after start-up and will not restart for an hour. Room has been taken out of booking since week two.', repeatIn90: 2, mtbf: 51, mttr: 11 },
+  { id: 'DR-2409', title: 'Corridor lights out at both ends of East Wing', category: 'Lighting', level: 5, wing: 'East Wing', room: '05-Corr-A', status: 'Assigned to vendor', sev: 'Medium', sevFrom: 'Medium', reports: 2, age: 31, sla: 30, vendor: 'BrightServ', mobile: '+65 8221 7745', desc: 'Both end fittings dead since the L5 breaker work. Corridor relies on emergency lighting after 7pm.', repeatIn90: 0, mtbf: 175, mttr: 6 },
+  { id: 'DR-2418', title: 'Aircon blowing warm air, whole open-plan zone', category: 'Air-Conditioning', level: 8, wing: 'Front Wing', room: '08-14', status: 'Pending equipment/tools', sev: 'Critical', sevFrom: 'High', reports: 6, age: 19, sla: 30, vendor: 'IFM Alpha', mobile: '+65 9123 4471', desc: 'FCU above workstation 08-14 has been blowing warm air since Monday. Zone temperature reads 28.4°C at 10am. Six colleagues on the same floor have raised it separately this week. Unit was serviced on 14 Jun and again on 02 Aug for the same symptom.', repeatIn90: 3, mtbf: 47, mttr: 11 },
+  { id: 'DR-2431', title: 'Corridor lighting flickering, 3 fittings out', category: 'Lighting', level: 5, wing: 'East Wing', room: '05-Corr-B', status: 'Assigned to vendor', sev: 'Medium', sevFrom: 'Low', reports: 3, age: 9, sla: 30, vendor: 'BrightServ', mobile: '+65 8877 2019', desc: 'Three ceiling fittings along the east corridor flicker intermittently, worse in the afternoon. Two colleagues reported headaches.', repeatIn90: 1, mtbf: 210, mttr: 6 },
+  { id: 'DR-2436', title: 'Male toilet cubicle 2 flush not working', category: 'Toilet', level: 3, wing: 'Front Wing', room: '03-WC-M', status: 'New', sev: 'High', sevFrom: 'Medium', reports: 4, age: 9, sla: 7, vendor: '—', mobile: '+65 9006 5512', desc: 'Flush handle spins with no water. Cubicle taped off by cleaning crew. Four separate reports since Tuesday.', repeatIn90: 2, mtbf: 88, mttr: 4 },
+  { id: 'DR-2440', title: 'Aircon leaking water onto carpet', category: 'Air-Conditioning', level: 8, wing: 'Front Wing', room: '08-03', status: 'Work in progress', sev: 'High', sevFrom: 'High', reports: 2, age: 4, sla: 14, vendor: 'IFM Alpha', mobile: '+65 9440 8871', desc: 'Condensate dripping from ceiling diffuser, carpet tile soaked over a 1m patch. Bucket placed underneath.', repeatIn90: 2, mtbf: 52, mttr: 11 },
+  { id: 'DR-2444', title: 'Access card reader intermittently denies valid pass', category: 'Physical Security', level: 12, wing: 'Lift Lobby', room: '12-Lobby', status: 'Triaged', sev: 'Critical', sevFrom: 'High', reports: 5, age: 6, sla: 7, vendor: 'SecureLine', mobile: '+65 8123 9902', desc: 'Reader at the L12 lobby denies access roughly one in four taps. Staff tailgating to get in, which defeats the access control.', repeatIn90: 1, mtbf: 130, mttr: 3 },
+  { id: 'DR-2447', title: 'Pantry floor not mopped, sticky residue', category: 'Cleaning', level: 6, wing: 'East Wing', room: '06-Pantry', status: 'Completed', sev: 'Low', sevFrom: 'Low', reports: 1, age: 3, sla: 3, vendor: 'CleanCo', mobile: '+65 9771 3320', desc: 'Spilled drink left overnight near the coffee machine.', repeatIn90: 0, mtbf: 300, mttr: 1 },
+  { id: 'DR-2451', title: 'Aircon noisy, rattling from ceiling void', category: 'Air-Conditioning', level: 8, wing: 'Front Wing', room: '08-22', status: 'Pending verification', sev: 'Medium', sevFrom: 'Medium', reports: 2, age: 12, sla: 7, vendor: 'IFM Alpha', mobile: '+65 9210 4408', desc: 'Loud rattle whenever the unit cycles on. Reported twice in the past two months.', repeatIn90: 2, mtbf: 49, mttr: 11 },
+  { id: 'DR-2455', title: 'Meeting room downlights dead after power trip', category: 'Lighting', level: 9, wing: 'Front Wing', room: '09-MR3', status: 'Pending equipment/tools', sev: 'Medium', sevFrom: 'Medium', reports: 1, age: 16, sla: 14, vendor: 'BrightServ', mobile: '+65 8332 1147', desc: 'Six of eight downlights out since the L9 breaker trip. Driver reportedly on order.', repeatIn90: 0, mtbf: 190, mttr: 6 },
+  { id: 'DR-2458', title: 'Loose ceiling tile above walkway', category: 'Others', level: 2, wing: 'Atrium', room: '02-Walk-1', status: 'New', sev: 'High', sevFrom: 'High', reports: 1, age: 2, sla: 7, vendor: '—', mobile: '+65 9550 2213', desc: 'Ceiling tile hanging at an angle above the main walkway. Safety risk to people walking below.', repeatIn90: 0, mtbf: 400, mttr: 5 },
+  { id: 'DR-2460', title: 'Toilet tap running continuously', category: 'Toilet', level: 7, wing: 'East Wing', room: '07-WC-F', status: 'Assigned to vendor', sev: 'Medium', sevFrom: 'Low', reports: 3, age: 5, sla: 14, vendor: 'IFM Alpha', mobile: '+65 8899 6612', desc: 'Sensor tap at basin 2 does not stop. Water wastage flagged by three staff.', repeatIn90: 1, mtbf: 120, mttr: 11 }
+];
+
+class Component extends DCLogic {
+  state = {
+    screen: 'defects', selectedId: 'DR-2418', q: '',
+    cat: 'All', status: 'All', sev: 'All',
+    age: 'All', timelineOpen: false, sevView: 'chips', insightView: 'cards', insightKind: 'All',
+    remindOpen: null
+  };
+
+  set = (patch) => this.setState(patch);
+  open = (id) => this.setState({ screen: 'detail', selectedId: id });
+
+  locLabel(d) { return `L${d.level} ${d.wing}`; }
+  bumped(d) { return d.reports > 1 && SEV[d.sev].rank > SEV[d.sevFrom].rank; }
+  noPickup(d) { return d.vendor === '—' && d.age >= 7; }
+  overdueAi(d) { return d.age >= 15 && ['Completed', 'Closed'].indexOf(d.status) < 0; }
+
+  filtered() {
+    const s = this.state, q = s.q.trim().toLowerCase();
+    return DEFECTS.filter(d =>
+      (s.cat === 'All' || d.category === s.cat) &&
+      (s.status === 'All' ||
+        (s.status === 'Open' ? ['Completed', 'Closed'].indexOf(d.status) < 0 : d.status === s.status)) &&
+      (s.sev === 'All' || d.sev === s.sev) &&
+      (s.age === 'All' ||
+        (s.age === 'Within SLA' && d.age <= d.sla) ||
+        (s.age === 'Past SLA' && d.age > d.sla) ||
+        (s.age === 'Over 30 days' && d.age > 30)) &&
+      (!q || (d.id + ' ' + d.title + ' ' + d.category + ' ' + this.locLabel(d) + ' ' + d.room).toLowerCase().indexOf(q) >= 0)
+    ).sort((a, b) => (SEV[b.sev].rank - SEV[a.sev].rank) || (b.age - a.age));
+  }
+
+  pills(list, active, key) {
+    return list.map(v => ({
+      label: v,
+      onClick: () => this.set({ [key]: v }),
+      style: `font-size:11.5px;font-weight:500;padding:6px 11px;border-radius:8px;cursor:pointer;white-space:nowrap;border:1px solid ${v === active ? '#1B65F8' : '#E6EAF0'};background:${v === active ? '#EAF1FE' : '#fff'};color:${v === active ? '#1B65F8' : '#5B6472'}`
+    }));
+  }
+
+  toggle(list, active, key) {
+    return list.map(o => ({
+      label: o.label,
+      onClick: () => this.set({ [key]: o.v }),
+      style: `font-size:11.5px;font-weight:600;padding:5px 11px;border-radius:7px;cursor:pointer;color:${o.v === active ? '#fff' : '#5B6472'};background:${o.v === active ? 'linear-gradient(135deg,#1B65F8,#00DCFF)' : 'transparent'}`
+    }));
+  }
+
+  row(d) {
+    const sm = SEV[d.sev];
+    const slaLeft = d.sla - d.age;
+    const over = slaLeft < 0;
+    const alert = this.noPickup(d) ? 'No pickup 7d+' : this.overdueAi(d) ? 'Unfixed 15d+' : '';
+    const over30 = d.age > 30 && ['Completed', 'Closed'].indexOf(d.status) < 0;
+    return {
+      over30,
+      rowStyle: `display:grid;grid-template-columns:104px minmax(220px,1fr) 168px 210px 150px 96px;gap:12px;align-items:center;padding:13px 17px;border-bottom:1px solid #F2F4F8;cursor:pointer;font-size:13px;min-width:1020px;background:${over30 ? '#FFF6F6' : '#fff'};box-shadow:${over30 ? 'inset 3px 0 0 #E5484D' : 'none'}`,
+      aiPrompt: `Day ${d.age} of a ${d.sla}-day SLA. ${d.vendor === '—' ? 'No vendor assigned' : d.vendor} has not closed this.`,
+      onRemind: (e) => { e.stopPropagation(); this.set({ remindOpen: d.id }); },
+      id: d.id, title: d.title, category: d.category,
+      reportsLabel: d.reports + ' report' + (d.reports > 1 ? 's' : ''),
+      status: d.status, locationLabel: this.locLabel(d) + ' · ' + d.room,
+      sevLabel: d.sev, sevChip: chip(sm.c, sm.bg), bumped: this.bumped(d),
+      ageLabel: `${d.age}d`,
+      alertLabel: alert,
+      alertStyle: alert ? chip(this.noPickup(d) ? '#B07A0C' : '#1B65F8', this.noPickup(d) ? '#FDF6E3' : '#EAF1FE') + ';flex:0 0 auto;font-size:10px;padding:3px 7px' : 'display:none',
+      slaLabel: over ? `${Math.abs(slaLeft)}d over SLA` : `${slaLeft}d left`,
+      slaStyle: `font-size:10.5px;margin-top:3px;font-weight:600;color:${over ? '#E5484D' : slaLeft <= 5 ? '#D9480F' : '#8A94A6'}`,
+      statusDot: `width:8px;height:8px;border-radius:50%;flex:0 0 auto;background:${STATUS_COLOR[d.status] || '#8A94A6'}`,
+      escalationNote: this.bumped(d) ? `raised from ${d.sevFrom} · ${d.reports} reporters/7d` : `${d.reports} report${d.reports > 1 ? 's' : ''}`,
+      sevTicks: ['Low', 'Medium', 'High', 'Critical'].map(l => ({
+        style: `width:16px;height:7px;border-radius:3px;background:${SEV[l].rank <= sm.rank ? sm.c : '#EDF0F5'}`
+      })),
+      onOpen: () => this.open(d.id)
+    };
+  }
+
+  timelineFor(d) {
+    const ev = [
+      { label: 'Defect reported', when: `${d.age} days ago`, who: `Staff · ${d.mobile}`, note: 'Auto-categorised as ' + d.category + ' with 94% confidence', tone: 'ai' },
+      { label: `Severity raised ${d.sevFrom} → ${d.sev}`, when: `${Math.max(d.age - 2, 1)} days ago`, who: 'CPS Agent', note: `${d.reports} separate reports for the same asset within 7 days`, tone: this.bumped(d) ? 'ai' : 'skip' },
+      { label: 'Triaged and assigned', when: `${Math.max(d.age - 3, 1)} days ago`, who: 'Serene Lim · CPS', note: d.vendor === '—' ? '' : 'Assigned to ' + d.vendor + ' (M&E specialist)', tone: 'done' },
+      { label: 'Vendor has not acknowledged', when: 'Day 7', who: 'System escalation', note: 'Escalated to CPS admin — no pickup within 7 days', tone: this.noPickup(d) ? 'warn' : 'skip' },
+      { label: 'Parts on order', when: `${Math.max(d.age - 9, 1)} days ago`, who: d.vendor, note: 'Compressor contactor, ETA 4 working days', tone: d.status === 'Pending equipment/tools' ? 'active' : 'skip' },
+      { label: 'Reminder sent to vendor', when: 'Day 15', who: 'CPS Agent', note: 'Draft approved by admin, sent to vendor PIC and Facilities Manager', tone: this.overdueAi(d) ? 'ai' : 'skip' },
+      { label: 'Awaiting proof of work', when: 'Now', who: '—', note: 'Photo + 15s video of unit running required', tone: 'pending' }
+    ].filter(e => e.tone !== 'skip');
+
+    const colorOf = { ai: '#1B65F8', done: '#12A150', warn: '#F5A524', active: '#0EA5A5', pending: '#C6CDD8' };
+    const shown = (this.state.timelineOpen ? ev : ev.slice(-3)).slice().reverse();
+    this._timelineHidden = ev.length - shown.length;
+    return shown.map((e, i) => ({
+      label: e.label, when: e.when, who: e.who, note: e.note,
+      dotStyle: `width:10px;height:10px;border-radius:50%;flex:0 0 auto;margin-top:4px;background:${e.tone === 'ai' ? 'linear-gradient(135deg,#1B65F8,#00DCFF)' : colorOf[e.tone]}`,
+      lineStyle: `flex:1;width:1px;background:${i === shown.length - 1 ? 'transparent' : '#E6EAF0'};margin-top:4px`,
+      noteStyle: `font-size:11.5px;line-height:1.5;margin-top:5px;color:${e.tone === 'ai' ? '#1B65F8' : '#5B6472'}`
+    }));
+  }
+
+  selDetail() {
+    const d = DEFECTS.filter(x => x.id === this.state.selectedId)[0] || DEFECTS[0];
+    const sm = SEV[d.sev];
+    const slaLeft = d.sla - d.age;
+    const strong = (c) => `font-size:17px;font-weight:600;font-family:'IBM Plex Mono',monospace;margin-top:6px;letter-spacing:-.5px;color:${c}`;
+    const grad = 'background:linear-gradient(135deg,#1B65F8,#00DCFF);padding:1.5px;border-radius:10.5px';
+    return {
+      id: d.id, title: d.title, category: d.category, room: d.room,
+      locationLabel: this.locLabel(d), ageLabel: `${d.age} days`,
+      sevLabel: d.sev, sevFrom: d.sevFrom, sevChip: chip(sm.c, sm.bg),
+      bumped: this.bumped(d), reports: d.reports, description: d.desc,
+      onRemind: () => this.set({ remindOpen: d.id }),
+      stats: [
+        { label: 'Status', value: d.status, note: d.vendor === '—' ? 'No vendor assigned' : d.vendor, valueStyle: `font-size:13.5px;font-weight:600;margin-top:6px;color:${STATUS_COLOR[d.status] || '#0B1220'}` },
+        { label: 'SLA', value: slaLeft < 0 ? `${Math.abs(slaLeft)}d over` : `${slaLeft}d left`, note: `${d.sla}-day target`, valueStyle: strong(slaLeft < 0 ? '#E5484D' : '#0B1220') },
+        { label: 'MTBF (asset)', value: `${d.mtbf}d`, note: d.mtbf < 60 ? 'Below 60d — root-cause flag' : 'Within expected range', valueStyle: strong(d.mtbf < 60 ? '#E5484D' : '#0B1220') },
+        { label: 'MTTR (vendor)', value: `${d.mttr}d`, note: d.mttr > 8 ? 'Above portfolio median (6d)' : 'At or below median', valueStyle: strong(d.mttr > 8 ? '#D9480F' : '#12A150') },
+        { label: 'Repeats / 90d', value: `${d.repeatIn90}×`, note: d.repeatIn90 >= 2 ? 'Systemic fault candidate' : 'Isolated', valueStyle: strong(d.repeatIn90 >= 2 ? '#D9480F' : '#0B1220') }
+      ],
+      fields: [
+        { label: 'Category', value: d.category },
+        { label: 'Mobile number', value: d.mobile },
+        { label: 'Location', value: `Level ${d.level}, ${d.wing}` },
+        { label: 'Room', value: d.room }
+      ],
+      photos: [{ label: 'photo_1.jpg' }, { label: 'photo_2.jpg' }, { label: 'Add file' }],
+      triage: [
+        { label: 'Severity', value: d.sev, meta: `was ${d.sevFrom}`, ai: true, hint: `${d.reports} reporters in 7 days on the same asset — urgency auto-raised.`, wrapStyle: grad },
+        { label: 'Urgency class', value: slaLeft < 0 ? 'Escalated' : d.sla <= 7 ? 'Urgent (7d)' : 'Non-urgent (30d)', meta: '', ai: true, hint: 'Derived from severity, headcount affected and safety exposure.', wrapStyle: grad },
+        { label: 'Specialist', value: d.category === 'Air-Conditioning' ? 'M&E — chilled water' : d.category === 'Lighting' ? 'Electrical' : d.category === 'Physical Security' ? 'Security systems' : 'General FM', meta: d.vendor, ai: true, hint: 'Matched on equipment profile and vendor contract scope.', wrapStyle: grad },
+        { label: 'Estimated fix', value: `${Math.max(d.mttr, 2)}–${d.mttr + 4} days`, meta: 'shown to reporter', ai: false, hint: 'Based on vendor MTTR for this category. Reporter sees this on submission.', wrapStyle: 'background:#E6EAF0;padding:1px;border-radius:10.5px' }
+      ],
+      verification: [
+        { icon: '✓', label: 'Photo of repaired unit', note: 'Uploaded by vendor · EXIF location matches L' + d.level, state: 'Passed', iconStyle: 'width:26px;height:26px;border-radius:8px;background:#E8F7EE;color:#12A150;font-size:13px;display:flex;align-items:center;justify-content:center;flex:0 0 auto', stateStyle: chip('#12A150', '#E8F7EE') },
+        { icon: '▶', label: '15s video, unit running', note: 'Required for repeat faults on the same asset', state: 'Awaiting', iconStyle: 'width:26px;height:26px;border-radius:8px;background:#FDF6E3;color:#B07A0C;font-size:11px;display:flex;align-items:center;justify-content:center;flex:0 0 auto', stateStyle: chip('#B07A0C', '#FDF6E3') },
+        { icon: '◎', label: 'Manual sign-off by CPS', note: 'Triggered because MTBF is under 60 days', state: 'Required', iconStyle: 'width:26px;height:26px;border-radius:8px;background:#EAF1FE;color:#1B65F8;font-size:12px;display:flex;align-items:center;justify-content:center;flex:0 0 auto', stateStyle: chip('#1B65F8', '#EAF1FE') }
+      ],
+      proofRec: d.repeatIn90 >= 2
+        ? 'Online evidence alone is not enough here. This asset has failed ' + d.repeatIn90 + ' times in 90 days with an MTBF of ' + d.mtbf + ' days, so a photo can confirm the visit but not the fix. Ask for a 15-second video with the unit running plus a manual CPS walk-through 72 hours after closure.'
+        : 'Photo evidence with matching EXIF location is sufficient for this defect class. Auto-close 72 hours after upload if the reporter raises no objection.',
+      timeline: this.timelineFor(d),
+      timelineToggleLabel: this.state.timelineOpen ? 'Show less' : `View ${this._timelineHidden} earlier update${this._timelineHidden === 1 ? '' : 's'}`,
+      timelineToggleStyle: this._timelineHidden > 0 || this.state.timelineOpen
+        ? 'font-size:11.5px;font-weight:600;color:#1B65F8;cursor:pointer;margin-top:2px'
+        : 'display:none',
+      onToggleTimeline: () => this.set({ timelineOpen: !this.state.timelineOpen }),
+      profiles: [
+        { label: 'Equipment', value: `FCU-08-${d.room.slice(-2)} · installed 2016`, flag: d.mtbf < 60 ? 'Aging' : 'OK', flagStyle: chip(d.mtbf < 60 ? '#D9480F' : '#12A150', d.mtbf < 60 ? '#FDF0E7' : '#E8F7EE') },
+        { label: 'Vendor', value: d.vendor === '—' ? 'Unassigned' : `${d.vendor} · MTTR ${d.mttr}d`, flag: d.mttr > 8 ? 'Slow' : 'On pace', flagStyle: chip(d.mttr > 8 ? '#D9480F' : '#12A150', d.mttr > 8 ? '#FDF0E7' : '#E8F7EE') },
+        { label: 'Location', value: `L${d.level} ${d.wing} · 14 defects in 12 months`, flag: 'Hotspot', flagStyle: chip('#1B65F8', '#EAF1FE') },
+        { label: 'Issue', value: `${d.category} · ${d.repeatIn90} repeats in 90 days`, flag: d.repeatIn90 >= 2 ? 'Systemic' : 'Isolated', flagStyle: chip(d.repeatIn90 >= 2 ? '#E5484D' : '#5B6472', d.repeatIn90 >= 2 ? '#FDECEC' : '#F1F4F8') }
+      ]
+    };
+  }
+
+  insightList() {
+    const all = [
+      {
+        kind: 'Predictive', window: 'Trend over 6 months', confidence: '0.88',
+        title: 'Level 8 Front Wing aircon batch is failing one unit at a time',
+        body: 'Five of the eleven FCUs on L8 Front Wing have failed in the last six months, roughly one every other month, all from the same 2016 installation batch. Failures are moving along the loop rather than clustering at one unit, which points to batch-wide wear rather than isolated faults.',
+        metrics: [{ label: 'Units failed', value: '5 / 11' }, { label: 'Avg MTBF', value: '49d' }, { label: 'Spend YTD', value: '$41.2k' }],
+        action: 'Bundle the remaining six units into one batch replacement instead of paying per-unit callouts. Projected saving over 18 months is $27k against continued reactive repair.',
+        cta: 'Raise batch replacement case', linked: 7
+      },
+      {
+        kind: 'Pre-emptive', window: 'Last 3 months', confidence: '0.91',
+        title: 'FCU-08-14 keeps failing after maintenance — likely deeper root cause',
+        body: 'The same unit at 08-14 has been reported faulty three times in 90 days, each time after the service team signed off a completed fix. Symptoms rotate between warm air, condensate leak and rattling, which suggests the underlying cause has not been reached.',
+        metrics: [{ label: 'Repeat reports', value: '3× / 90d' }, { label: 'MTBF', value: '47d' }, { label: 'Vendor MTTR', value: '11d' }],
+        action: 'Escalate past routine servicing to a root-cause inspection of the chilled water valve and drainage line, and hold vendor sign-off until a 72-hour post-fix check passes.',
+        cta: 'Order root-cause inspection', linked: 3
+      },
+      {
+        kind: 'Predictive', window: 'Rolling 12 months', confidence: '0.74',
+        title: 'L3 and L7 toilet fittings trend toward a Q4 spike',
+        body: 'Sensor taps and flush valves across L3 and L7 are averaging 88-day intervals between faults, tightening from 140 days a year ago. Both floors run the same 2017 fitting model.',
+        metrics: [{ label: 'Defects / qtr', value: '9 → 14' }, { label: 'Avg MTBF', value: '88d' }, { label: 'Floors', value: 'L3, L7' }],
+        action: 'Schedule a planned fitting refresh during the December shutdown window while both floors are at low occupancy.',
+        cta: 'Add to planned works', linked: 5
+      },
+      {
+        kind: 'Pre-emptive', window: 'Last 90 days', confidence: '0.83',
+        title: 'Two L5 corridor lighting circuits fail after every breaker event',
+        body: 'Both East Wing corridor circuits have gone dark following each of the last three L5 breaker interventions, while other floors on the same panel stayed up. The pattern points at the circuit protection rather than the fittings.',
+        metrics: [{ label: 'Repeat events', value: '3 / 3' }, { label: 'Avg downtime', value: '19d' }, { label: 'Floors', value: 'L5' }],
+        action: 'Inspect the L5 sub-panel protection before replacing any more fittings, and hold the current job open until the circuit is tested under load.',
+        cta: 'Order circuit inspection', linked: 2
+      }
+    ];
+    const k = this.state.insightKind;
+    return (k === 'All' ? all : all.filter(i => i.kind === k)).map(i => ({
+      ...i,
+      kindChip: chip(i.kind === 'Predictive' ? '#1B65F8' : i.kind === 'Pre-emptive' ? '#00A0C4' : '#D9480F',
+        i.kind === 'Predictive' ? '#EAF1FE' : i.kind === 'Pre-emptive' ? '#E4F8FD' : '#FDF0E7')
+    }));
+  }
+
+  renderVals() {
+    const s = this.state;
+    const screens = [
+      { k: 'defects', label: 'Defects Management', title: 'Defects Management', sub: 'Live across 12 levels · 4 vendors' },
+      { k: 'insights', label: 'AI insights', title: 'AI insights', sub: 'Predictive and pre-emptive signals' }
+    ];
+    const cur = s.screen === 'detail'
+      ? { title: 'Defect detail', sub: 'Triage, verification and history' }
+      : (screens.filter(x => x.k === s.screen)[0] || screens[0]);
+
+    const open = DEFECTS.filter(d => ['Completed', 'Closed'].indexOf(d.status) < 0);
+    const overdue = open.filter(d => d.age > d.sla);
+    const rd = DEFECTS.filter(d => d.id === s.remindOpen)[0];
+
+    const nav = screens.map(x => {
+      const active = x.k === s.screen || (s.screen === 'detail' && x.k === 'defects');
+      const badge = x.k === 'defects' ? String(open.length) : '4';
+      return {
+        label: x.label,
+        onClick: () => this.set({ screen: x.k }),
+        style: `display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 11px;border-radius:10px;cursor:pointer;font-size:13px;font-weight:${active ? 600 : 500};color:${active ? '#1B65F8' : '#5B6472'};background:${active ? '#EFF4FE' : 'transparent'}`,
+        dot: `width:6px;height:6px;border-radius:50%;flex:0 0 auto;background:${active ? 'linear-gradient(135deg,#1B65F8,#00DCFF)' : '#D3DAE5'}`,
+        badge,
+        badgeStyle: `font-size:10.5px;font-weight:600;font-family:'IBM Plex Mono',monospace;padding:2px 6px;border-radius:6px;color:#8A94A6;background:#F2F4F8`
+      };
+    });
+
+    return {
+      nav, screenTitle: cur.title, screenSub: cur.sub,
+      isDefects: s.screen === 'defects', isDetail: s.screen === 'detail', isInsights: s.screen === 'insights',
+      goDefects: () => this.set({ screen: 'defects' }),
+      goInsights: () => this.set({ screen: 'insights' }),
+      q: s.q, onSearch: (e) => this.set({ q: e.target.value, screen: s.screen === 'detail' ? 'defects' : s.screen }),
+
+      kpis: [
+        { label: 'Open defects', value: String(open.length), delta: 'view all →', note: 'All time, across all categories', deltaStyle: 'font-size:11.5px;font-weight:600;color:#1B65F8;padding-bottom:3px', onClick: () => this.set({ status: 'Open', cat: 'All', sev: 'All', age: 'All', q: '' }), cardStyle: `background:#fff;border:1px solid ${s.status === 'Open' ? '#1B65F8' : '#E6EAF0'};border-radius:14px;padding:16px 17px;cursor:pointer` },
+        { label: 'Past SLA · Sep', value: String(overdue.length), delta: 'action', note: '2 have passed 30 days', deltaStyle: 'font-size:11.5px;font-weight:600;color:#E5484D;padding-bottom:3px', onClick: null, cardStyle: 'background:#fff;border:1px solid #E6EAF0;border-radius:14px;padding:16px 17px' },
+        { label: 'Avg MTTR · Sep', value: '7.4d', delta: '+1.2', note: 'Portfolio median 6 days', deltaStyle: 'font-size:11.5px;font-weight:600;color:#D9480F;padding-bottom:3px', onClick: null, cardStyle: 'background:#fff;border:1px solid #E6EAF0;border-radius:14px;padding:16px 17px' },
+        { label: 'Closed · Sep', value: '38', delta: '92%', note: 'Verified with proof of work', deltaStyle: 'font-size:11.5px;font-weight:600;color:#12A150;padding-bottom:3px', onClick: null, cardStyle: 'background:#fff;border:1px solid #E6EAF0;border-radius:14px;padding:16px 17px' }
+      ],
+
+      catFilters: this.pills(['All', 'Air-Conditioning', 'Lighting', 'Cleaning', 'Toilet', 'Physical Security', 'Others'], s.cat, 'cat'),
+      statusFilters: this.pills(['All', 'Open', 'New', 'Triaged', 'Assigned to vendor', 'Pending equipment/tools', 'Work in progress', 'Pending verification', 'Completed'], s.status, 'status'),
+      sevFilters: this.pills(['All', 'Critical', 'High', 'Medium', 'Low'], s.sev, 'sev'),
+      ageFilters: this.pills(['All', 'Within SLA', 'Past SLA', 'Over 30 days'], s.age, 'age'),
+      sevViewToggle: this.toggle([{ v: 'chips', label: 'Chips' }, { v: 'bars', label: 'Escalation bars' }], s.sevView, 'sevView'),
+      sevChips: s.sevView === 'chips', sevBars: s.sevView === 'bars',
+      rows: this.filtered().map(d => this.row(d)),
+      resultCount: this.filtered().length,
+      clearFilters: () => this.set({ cat: 'All', status: 'All', sev: 'All', age: 'All', q: '' }),
+
+      sel: this.selDetail(),
+
+      insights: this.insightList(),
+      insightsHeadline: 'Four patterns worth acting on before they generate more tickets',
+      insightStats: [{ value: '4', label: 'Open signals' }, { value: '19', label: 'Linked defects' }, { value: '$68k', label: 'Avoidable spend' }],
+      insightKindFilters: this.pills(['All', 'Predictive', 'Pre-emptive'], s.insightKind, 'insightKind'),
+      insightViewToggle: this.toggle([{ v: 'cards', label: 'Cards' }, { v: 'feed', label: 'Briefing feed' }], s.insightView, 'insightView'),
+      insightCards: s.insightView === 'cards', insightFeed: s.insightView === 'feed',
+
+      remindOpen: !!rd,
+      stop: (e) => e.stopPropagation(),
+      closeRemind: () => this.set({ remindOpen: null }),
+      remindTitle: rd ? rd.title : '',
+      remindMeta: rd ? `${rd.id} · ${rd.vendor} · day ${rd.age} of ${rd.sla} · ${rd.reports} reporters` : '',
+      remindBody: rd ? `Hi ${rd.vendor} team,\n\n${rd.id} (${rd.title}, Level ${rd.level} ${rd.wing}, room ${rd.room}) was raised ${rd.age} days ago and remains unresolved against a ${rd.sla}-day target. Current status is "${rd.status}".\n\nThis asset has failed ${rd.repeatIn90} times in the last 90 days with an MTBF of ${rd.mtbf} days, and ${rd.reports} staff have reported the same fault this week. Please confirm the parts ETA and attendance date by close of business tomorrow.\n\nProof of work required on completion: photo of the repaired unit and a 15-second video with the unit running.\n\nCPS Facilities` : '',
+      remindOptions: [{ label: 'Firmer tone' }, { label: 'Attach repeat-fault history' }, { label: 'CC Facilities Manager' }, { label: 'Request site visit date' }]
+    };
+  }
+}
+
+</script>
+</body>
+</html>
