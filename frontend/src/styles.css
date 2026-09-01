@@ -55,3 +55,52 @@ th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #eee; }
   padding: 0.6rem 0.9rem; margin: 0.5rem 0;
 }
 .notif-unread { border-left: 4px solid #2244aa; }
+
+.photo-preview-row, .photo-gallery {
+  display: flex; flex-wrap: wrap; gap: 0.6rem; margin: 0.4rem 0 0.8rem;
+}
+.photo-preview {
+  position: relative; width: 84px; height: 84px;
+}
+.photo-preview img, .photo-gallery img {
+  width: 84px; height: 84px; object-fit: cover; border-radius: 8px; border: 1px solid #e2e4ee;
+}
+.photo-preview button {
+  position: absolute; top: -6px; right: -6px; width: 22px; height: 22px;
+  padding: 0; line-height: 1; border-radius: 50%; font-size: 0.7rem;
+}
+
+/* Report defect — mobile redesign (scoped, does not affect other pages) */
+.report-mobile { font-family: Manrope, system-ui, sans-serif; max-width: 480px; margin: 0 auto; }
+.report-mobile .cat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+.report-mobile .cat-card {
+  text-align: left; cursor: pointer; background: #fff; border: 1px solid #e5e9f0;
+  border-radius: 18px; padding: 16px 14px; display: flex; flex-direction: column;
+  gap: 20px; transition: all .16s ease;
+}
+.report-mobile .cat-card:hover { border-color: #1B65F8; transform: translateY(-2px); }
+.report-mobile .cat-card svg { stroke: #1B65F8; }
+.report-mobile .cat-card span { font-weight: 700; color: #0f172a; }
+.report-mobile .cat-pill {
+  display: inline-flex; align-items: center; gap: 7px; padding: 7px 13px;
+  background: rgba(27,101,248,.08); border-radius: 11px; color: #1B65F8; font-weight: 700;
+}
+.report-mobile .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.report-mobile .chip {
+  padding: 9px 14px; border-radius: 12px; cursor: pointer; font-weight: 700;
+  font-size: 0.85rem; border: 1px solid #e5e9f0; background: #fff; color: #334155;
+}
+.report-mobile .chip.active {
+  border-color: transparent; color: #fff;
+  background: linear-gradient(115deg, #1B65F8, #00DCFF);
+}
+.report-mobile .mobile-input { display: flex; align-items: center; border: 1px solid #ccd; border-radius: 10px; overflow: hidden; }
+.report-mobile .mobile-input span { padding: 0 12px; color: #94a3b8; font-weight: 600; border-right: 1px solid #eef2f7; }
+.report-mobile .mobile-input input { border: 0; margin: 0; }
+.report-mobile .info-card { display: flex; gap: 9px; padding: 13px 14px; background: #f8fafc; border-radius: 14px; font-size: 0.85rem; color: #64748b; }
+.report-mobile .submit-btn {
+  width: 100%; height: 50px; border: 0; border-radius: 15px; font-weight: 700;
+  background: linear-gradient(115deg, #1B65F8, #00DCFF); color: #fff;
+}
+.report-mobile .submit-btn:disabled { background: #f1f5f9; color: #94a3b8; }
+.report-mobile .ack-row { display: flex; gap: 10px; align-items: flex-start; font-size: 0.85rem; color: #475569; }

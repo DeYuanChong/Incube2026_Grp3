@@ -45,8 +45,6 @@ flowchart LR
   description; stores `ai_suggested_category` + confidence alongside the
   reporter's `category`. If they differ, the reporter is shown the suggestion and
   can accept it (one PATCH) — the user's input is never silently replaced.
-- **Expectation management**: computes `estimated_resolution_days` from base days
-  per category/severity, scaled by live open-issue load (see doc 04).
 - Emits: `issue.created`, `issue.updated`, `issue.status_changed`, `issue.closed`.
 
 ### Triage (`services/triage`, :8002)

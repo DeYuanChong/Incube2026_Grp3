@@ -1,19 +1,24 @@
 import json
+import os
+import uuid
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from sqlalchemy import text
 from sqlmodel import Session, func, select
 
-from . import ai_client, estimator, events
+from . import ai_client, config, events
 from .db import get_session, init_db
-from .models import TRANSITIONS, Issue, IssueEvent, Status, now_iso
+from .models import TRANSITIONS, Category, Issue, IssueEvent, IssuePhoto, Status, now_iso
 from .schemas import (
     CancelRequest,
     CloseRequest,
     IssueCreate,
     IssueUpdate,
     StatusChange,
+    SuggestDescriptionRequest,
+    SuggestDescriptionResponse,
     TriageResultIn,
 )
 
@@ -40,16 +45,54 @@ def _log_event(session: Session, issue_id: str, event_type: str, actor: str, det
     )
 
 
-def _open_count(session: Session) -> int:
-    open_statuses = [s for s in Status if s not in (Status.closed, Status.cancelled)]
-    return session.exec(
-        select(func.count()).select_from(Issue).where(Issue.status.in_(open_statuses))
-    ).one()
-
-
 def _next_reference_no(session: Session) -> str:
     count = session.exec(select(func.count()).select_from(Issue)).one()
     return f"DEF-2026-{count + 1:04d}"
+
+
+def _apply_photo_signal(session: Session, issue: Issue) -> None:
+    """Recomputes ai_suggested_category/title/description/photo_note from
+    scratch across all of the issue's photos (docs/04 §7 decision matrix)."""
+    photos = session.exec(select(IssuePhoto).where(IssuePhoto.issue_id == issue.id)).all()
+
+    votes: dict[Category, int] = {}
+    for ph in photos:
+        if ph.ai_verdict == "aligned":
+            vote = ph.checked_against_category
+        elif ph.ai_verdict == "misaligned" and ph.ai_suggested_category:
+            vote = ph.ai_suggested_category
+        else:
+            continue
+        votes[vote] = votes.get(vote, 0) + 1
+    total = sum(votes.values())
+    majority = next((cat for cat, n in votes.items() if n * 2 > total), None)
+
+    u, t, p = issue.category, issue.ai_suggested_category or issue.category, majority
+
+    if p is None:
+        pass  # baseline unchanged — leave ai_suggested_category as-is
+    elif p == t == u:
+        issue.ai_suggested_category, issue.photo_note = None, None
+    elif p == t != u:
+        issue.ai_suggested_category, issue.photo_note = t, None
+    elif p == u != t:
+        issue.ai_suggested_category = None
+        issue.photo_note = "Your description reads a bit differently than your photo — worth a quick check?"
+    else:  # three-way disagreement: trust the description
+        issue.ai_suggested_category, issue.photo_note = (t if t != u else None), None
+        _log_event(session, issue.id, "photo_category_conflict", "system",
+                   {"user_category": u.value, "text_suggested": t.value, "photo_voted": p.value})
+
+    candidates = [ph for ph in photos if ph.ai_verdict == "misaligned"
+                  and ph.ai_confidence is not None
+                  and ph.ai_confidence >= config.PHOTO_MISALIGN_CONFIDENCE]
+    leading = max(candidates, key=lambda ph: ph.ai_confidence, default=None)
+    if leading and (leading.ai_suggested_title or leading.ai_suggested_description):
+        issue.ai_suggested_title = leading.ai_suggested_title
+        issue.ai_suggested_description = leading.ai_suggested_description
+        issue.photo_mismatch_reason = leading.ai_reason
+    else:
+        issue.ai_suggested_title, issue.ai_suggested_description, issue.photo_mismatch_reason = None, None, None
 
 
 @app.get("/health")
@@ -64,6 +107,8 @@ def create_issue(
     session: Session = Depends(get_session),
     who: dict = Depends(caller),
 ):
+    if not body.ack_confirmed:
+        raise HTTPException(422, "acknowledgement is required")
     issue = Issue(
         **body.model_dump(),
         reference_no=_next_reference_no(session),
@@ -79,11 +124,6 @@ def create_issue(
         issue.ai_suggested_category = suggestion["category"]
         issue.ai_category_confidence = suggestion["confidence"]
 
-    # Expectation management: ETA from category + live open-issue load (doc 04 §2)
-    days, basis = estimator.estimate(body.category.value, None, _open_count(session))
-    issue.estimated_resolution_days = days
-    issue.estimate_basis = basis
-
     session.add(issue)
     _log_event(session, issue.id, "created", who["user"], {"category": body.category.value})
     session.commit()
@@ -97,6 +137,19 @@ def create_issue(
          "floor": issue.floor, "reporter": issue.reporter_name, "title": issue.title},
     )
     return issue
+
+
+@app.post("/issues/suggest-description", response_model=SuggestDescriptionResponse)
+def suggest_description(body: SuggestDescriptionRequest):
+    location = None
+    if body.building:
+        location = body.building + (f" / {body.floor}" if body.floor else "")
+    suggestion = ai_client.suggest_description(
+        body.title, body.category.value if body.category else None, location, body.existing_text,
+    )
+    if not suggestion:
+        return SuggestDescriptionResponse(description=None, confidence=None)
+    return SuggestDescriptionResponse(**suggestion)
 
 
 @app.get("/issues")
@@ -147,7 +200,10 @@ def get_issue(issue_id: str, session: Session = Depends(get_session)):
     timeline = session.exec(
         select(IssueEvent).where(IssueEvent.issue_id == issue_id).order_by(IssueEvent.created_at)
     ).all()
-    return {"issue": issue, "timeline": timeline}
+    photos = session.exec(
+        select(IssuePhoto).where(IssuePhoto.issue_id == issue_id).order_by(IssuePhoto.created_at)
+    ).all()
+    return {"issue": issue, "timeline": timeline, "photos": photos}
 
 
 @app.patch("/issues/{issue_id}")
@@ -165,6 +221,12 @@ def update_issue(
     changes = body.model_dump(exclude_unset=True)
     for key, value in changes.items():
         setattr(issue, key, value)
+    # stale-suggestion rule: text/location changed, prior AI reads no longer apply
+    issue.ai_suggested_category = None
+    issue.ai_suggested_title = None
+    issue.ai_suggested_description = None
+    issue.photo_note = None
+    issue.photo_mismatch_reason = None
     issue.updated_at = now_iso()
     _log_event(session, issue_id, "updated", who["user"], changes)
     session.commit()
@@ -191,6 +253,93 @@ def accept_suggested_category(
     return issue
 
 
+@app.post("/issues/{issue_id}/accept-suggested-title")
+def accept_suggested_title(
+    issue_id: str, session: Session = Depends(get_session), who: dict = Depends(caller)
+):
+    issue = session.get(Issue, issue_id)
+    if not issue:
+        raise HTTPException(404, "issue not found")
+    if not issue.ai_suggested_title:
+        raise HTTPException(409, "no AI title suggestion on this issue")
+    issue.title = issue.ai_suggested_title
+    issue.ai_suggested_title = None
+    issue.updated_at = now_iso()
+    _log_event(session, issue_id, "title_accepted", who["user"], {"title": issue.title})
+    session.commit()
+    session.refresh(issue)
+    return issue
+
+
+@app.post("/issues/{issue_id}/accept-suggested-description")
+def accept_suggested_description(
+    issue_id: str, session: Session = Depends(get_session), who: dict = Depends(caller)
+):
+    issue = session.get(Issue, issue_id)
+    if not issue:
+        raise HTTPException(404, "issue not found")
+    if not issue.ai_suggested_description:
+        raise HTTPException(409, "no AI description suggestion on this issue")
+    issue.description = issue.ai_suggested_description
+    issue.ai_suggested_description = None
+    issue.updated_at = now_iso()
+    _log_event(session, issue_id, "description_accepted", who["user"], {})
+    session.commit()
+    session.refresh(issue)
+    return issue
+
+
+@app.post("/issues/{issue_id}/photos", status_code=201)
+def upload_photo(
+    issue_id: str,
+    background: BackgroundTasks,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    who: dict = Depends(caller),
+):
+    issue = session.get(Issue, issue_id)
+    if not issue:
+        raise HTTPException(404, "issue not found")
+    if issue.status != Status.reported:
+        raise HTTPException(409, "photos can only be added while status is 'reported'")
+    if not (file.content_type or "").startswith("image/"):
+        raise HTTPException(422, "file must be an image")
+
+    ext = os.path.splitext(file.filename or "")[1] or ".jpg"
+    path = os.path.join(config.UPLOAD_DIR, f"{uuid.uuid4()}{ext}")
+    with open(path, "wb") as out:
+        out.write(file.file.read())
+
+    result = ai_client.verify_photo(path, issue.category.value, issue.title, issue.description)
+    photo = IssuePhoto(
+        issue_id=issue_id, file_path=path, uploaded_by=who["user"],
+        checked_against_category=issue.category,
+        ai_verdict=result["verdict"], ai_confidence=result["confidence"], ai_reason=result["reason"],
+        ai_suggested_category=result["suggested_category"],
+        ai_suggested_title=result["suggested_title"], ai_suggested_description=result["suggested_description"],
+    )
+    session.add(photo)
+    _apply_photo_signal(session, issue)
+    issue.updated_at = now_iso()
+    _log_event(session, issue_id, "photo_uploaded", who["user"], {"verdict": result["verdict"]})
+    session.commit()
+    session.refresh(issue)
+    session.refresh(photo)
+    background.add_task(
+        events.publish, "issue.photo_uploaded",
+        {"issue_id": issue.id, "reference_no": issue.reference_no, "photo_id": photo.id},
+    )
+    return {"issue": issue, "photo": photo}
+
+
+@app.get("/issues/{issue_id}/photos/{photo_id}/file")
+def get_photo_file(issue_id: str, photo_id: str, session: Session = Depends(get_session)):
+    photo = session.get(IssuePhoto, photo_id)
+    if not photo or photo.issue_id != issue_id:
+        raise HTTPException(404, "photo not found")
+    return FileResponse(photo.file_path)
+
+
 @app.post("/issues/{issue_id}/triage-result")
 def apply_triage_result(
     issue_id: str,
@@ -215,10 +364,6 @@ def apply_triage_result(
     if issue.status == Status.reported:
         issue.status = Status.triaged
         issue.triaged_at = now_iso()
-    # Severity is now known — refine the reporter-facing ETA
-    days, basis = estimator.estimate(issue.category.value, body.severity, _open_count(session))
-    issue.estimated_resolution_days = days
-    issue.estimate_basis = basis
     issue.updated_at = now_iso()
     _log_event(session, issue_id, "triaged", "triage-service",
                {"severity": body.severity, "urgency": body.urgency})

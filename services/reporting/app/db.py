@@ -1,12 +1,16 @@
+import os
+
 from sqlalchemy import text
 from sqlmodel import Session, SQLModel, create_engine
 
+from . import config
 from .config import DATABASE_URL
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 
 def init_db() -> None:
+    os.makedirs(config.UPLOAD_DIR, exist_ok=True)
     with engine.begin() as conn:
         conn.execute(text("CREATE SCHEMA IF NOT EXISTS reporting"))
         # pg_trgm powers the fuzzy `q` search on issues (docs/02)
