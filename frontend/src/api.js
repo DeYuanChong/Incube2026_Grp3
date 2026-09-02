@@ -73,7 +73,8 @@ export const api = {
 
   // triage
   triageResult: (issueId) => request(`/api/triage/results/${issueId}`),
-  runTriage: (issueId) => request(`/api/triage/run/${issueId}`, { method: 'POST' }),
+  // Body is {severity, urgency}; either may be null to mean "no override,
+  // take the AI's suggestion". Sets admin_confirmed either way.
   confirmTriage: (issueId, data) =>
     request(`/api/triage/results/${issueId}/confirm`, { method: 'POST', body: data }),
   // One GET returns the whole analytics output — systemic, profiles,
@@ -96,15 +97,10 @@ export const api = {
     if (note) formData.append('note', note)
     return request(`/api/fixverify/work-orders/${id}/proofs`, { method: 'POST', formData })
   },
+  proofFileUrl: (proofId) => `${GATEWAY}/api/fixverify/proofs/${proofId}/file`,
   humanVerify: (proofId, approved, notes) =>
     request(`/api/fixverify/proofs/${proofId}/human-verify`, {
       method: 'POST', body: { approved, notes },
     }),
 
-  // notifications
-  notifications: (unreadOnly = false) =>
-    request(`/api/notifications/notifications?unread_only=${unreadOnly}`),
-  unreadCount: () => request('/api/notifications/notifications/unread-count'),
-  markRead: (id) => request(`/api/notifications/notifications/${id}/read`, { method: 'POST' }),
-  markAllRead: () => request('/api/notifications/notifications/read-all', { method: 'POST' }),
 }

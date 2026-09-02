@@ -87,15 +87,21 @@ export const pct = (rate) =>
 export const signed = (value, suffix = '') =>
   value === null || value === undefined ? null : `${value > 0 ? '+' : ''}${value}${suffix}`
 
+/** Elapsed time as whole units, floored throughout.
+ *
+ *  Floor rather than round, so this agrees with `ageDays`/`ageLabel`/`slaState`
+ *  above: a 5.7-day-old issue is "5d" in the age column and must not be "6d ago"
+ *  in the timeline beside it. Flooring is also the ordinary reading of elapsed
+ *  time — five whole days have passed, the sixth has not. */
 export function relativeDate(iso) {
   if (!iso) return '—'
   const then = Date.parse(iso)
   if (Number.isNaN(then)) return '—'
-  const mins = Math.round((Date.now() - then) / 60000)
+  const mins = Math.floor((Date.now() - then) / 60000)
   if (mins < 1) return 'just now'
   if (mins < 60) return `${mins}m ago`
-  if (mins < 1440) return `${Math.round(mins / 60)}h ago`
-  const d = Math.round(mins / 1440)
+  if (mins < 1440) return `${Math.floor(mins / 60)}h ago`
+  const d = Math.floor(mins / 1440)
   return d < 30 ? `${d}d ago` : new Date(then).toLocaleDateString()
 }
 

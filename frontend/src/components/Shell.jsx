@@ -6,20 +6,20 @@ import { initials } from '../lib/tokens'
 
 export const ROUTES = [
   {
-    path: '/',
-    label: 'Defects Management',
-    title: 'Defects Management',
-    sub: 'Live queue, ageing and SLA',
-    roles: ['reporter', 'maintenance', 'admin'],
-    badge: 'open',
-  },
-  {
     path: '/insights',
     label: 'AI insights',
     title: 'AI insights',
     sub: 'Systemic, predictive and pre-emptive signals',
     roles: ['admin'],
     badge: 'insights',
+  },
+  {
+    path: '/',
+    label: 'Defects Management',
+    title: 'Defects Management',
+    sub: 'Live queue, ageing and SLA',
+    roles: ['reporter', 'maintenance', 'admin'],
+    badge: 'open',
   },
   {
     path: '/report',
@@ -29,26 +29,11 @@ export const ROUTES = [
     roles: ['reporter'],
   },
   {
-    path: '/triage',
-    label: 'Triage',
-    title: 'Triage board',
-    sub: 'Confirm or override the AI suggestion',
-    roles: ['admin'],
-  },
-  {
     path: '/fix-verify',
     label: 'Fix & Verify',
     title: 'Fix & Verify',
     sub: 'Work orders and proof of work',
     roles: ['maintenance', 'admin'],
-  },
-  {
-    path: '/notifications',
-    label: 'Notifications',
-    title: 'Notifications',
-    sub: 'Everything addressed to you',
-    roles: ['reporter', 'maintenance', 'admin'],
-    badge: 'unread',
   },
 ]
 
@@ -57,7 +42,7 @@ const DETAIL = { title: 'Defect detail', sub: 'Triage, verification and history'
 
 export function screenFor(pathname) {
   if (pathname.startsWith('/issues/')) return DETAIL
-  return ROUTES.find((r) => r.path === pathname) || ROUTES[0]
+  return ROUTES.find((r) => r.path === pathname) || ROUTES.find((r) => r.path === '/')
 }
 
 const ROLE_LABEL = { reporter: 'Reporter', maintenance: 'Maintenance', admin: 'Admin, CPS' }
@@ -88,9 +73,7 @@ export default function Shell({ identity, onIdentityChange, badges, children }) 
                   <span>{route.label}</span>
                 </span>
                 {count > 0 && (
-                  <span className={`nav-badge${route.badge === 'unread' ? ' alert' : ''}`}>
-                    {count}
-                  </span>
+                  <span className="nav-badge">{count}</span>
                 )}
               </NavLink>
             )

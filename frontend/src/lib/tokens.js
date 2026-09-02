@@ -36,6 +36,21 @@ export const STATUS_LABEL = {
 
 export const STATUS_ORDER = Object.keys(STATUS_LABEL)
 
+// fixverify work orders run their own status enum, distinct from the issue's
+// (services/fixverify/app/models.py:28). Passing one through STATUS_LABEL
+// silently returns the raw value, so it gets its own table.
+export const WORK_ORDER_LABEL = {
+  open: 'Open — not started',
+  in_progress: 'Work in progress',
+  awaiting_proof: 'Awaiting proof of work',
+  pending_human_verification: 'Awaiting CPS sign-off',
+  verified: 'Verified',
+  rejected: 'Proof rejected — rework needed',
+}
+
+export const workOrderLabel = (value) =>
+  WORK_ORDER_LABEL[value] || (value || '').replaceAll('_', ' ') || '—'
+
 // The mock's six categories map one-to-one onto the real Category enum.
 export const CATEGORY_LABEL = {
   air_conditioning: 'Air-Conditioning',
@@ -47,6 +62,68 @@ export const CATEGORY_LABEL = {
 }
 
 export const CATEGORY_ORDER = Object.keys(CATEGORY_LABEL)
+
+// The timeline's vocabulary. Every type reporting/app/main.py writes through
+// `_log_event`, plus the `status:<status>` family it emits on a transition.
+// A type with no entry falls through to its raw string rather than an empty
+// row — a new event added server-side stays legible until it is named here.
+export const EVENT_LABEL = {
+  created: 'Defect reported',
+  // scripts/import_defects.py backfills history from the ITeFM export; today
+  // it is the only event type in the database
+  imported: 'Imported from ITeFM',
+  updated: 'Details edited',
+  category_accepted: 'AI category accepted',
+  title_accepted: 'AI title accepted',
+  description_accepted: 'AI description accepted',
+  photo_uploaded: 'Photo uploaded',
+  photo_category_conflict: 'Photo disagrees with the category',
+  triaged: 'Triaged by AI',
+  closed: 'Closed',
+  cancelled: 'Cancelled',
+}
+
+// Dot colour on the timeline rail. `ai` draws the gradient the mock reserves
+// for anything a model produced; the rest are flat tokens.
+export const EVENT_TONE = {
+  created: 'accent',
+  imported: 'muted',
+  updated: 'muted',
+  category_accepted: 'ai',
+  title_accepted: 'ai',
+  description_accepted: 'ai',
+  photo_uploaded: 'muted',
+  photo_category_conflict: 'warn',
+  triaged: 'ai',
+  closed: 'ok',
+  cancelled: 'muted',
+}
+
+/** `status:in_progress` → "Work in progress", reusing STATUS_LABEL so the
+ *  timeline and the status cell can never name the same state differently. */
+export function eventLabel(type) {
+  if (type?.startsWith('status:')) return statusLabel(type.slice(7))
+  return EVENT_LABEL[type] || type || 'Event'
+}
+
+export function eventTone(type) {
+  if (type?.startsWith('status:')) {
+    const status = type.slice(7)
+    if (status === 'verified') return 'ok'
+    if (status === 'cancelled') return 'muted'
+    return 'active'
+  }
+  return EVENT_TONE[type] || 'muted'
+}
+
+export const EVENT_DOT = {
+  ai: 'var(--grad)',
+  accent: 'var(--accent)',
+  active: '#0ea5a5',
+  ok: 'var(--ok)',
+  warn: '#f5a524',
+  muted: '#c6cdd8',
+}
 
 // `hint` is what the kind claims, not what the rule measured — the badges are
 // the only place the three words are defined for a reader.
