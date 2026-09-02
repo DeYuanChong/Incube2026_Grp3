@@ -111,13 +111,43 @@ def duplicates(profile: dict) -> float | None:
     )
 
 
-def asset_mtbf(row: dict) -> float | None:
-    """An asset failing faster than it should.
+# The sentinels an unextracted field becomes upstream: `Unspecified` and
+# `Unknown` are the importer's floor and building when the location path is
+# missing those segments (scripts/defect_mapping.py), `(unspecified)` the
+# equipment fallback here. All three name the same thing — "we could not tell" —
+# and all three are among the largest groups in the snapshot, because that is
+# what a catch-all is.
+UNKNOWN = {"Unspecified", "Unknown", "(unspecified)"}
 
-    `(unspecified)` is skipped: it is every issue with no equipment extracted, so
-    its MTBF is the site's arrival rate wearing an asset's name.
+
+def identified(name: str | None) -> bool:
+    """Whether a group name is a thing, or the bucket of everything we could not
+    place.
+
+    An unknown floor is not a floor, and a rule keyed on one describes nothing:
+    the `Annex|Unspecified` bucket held 56 issues whose titles read "Annex Level
+    5", "Annex Level 7", "Annex Level 3" — every floor in the building, grouped
+    on the one property they share, which is that the parser missed it. It is
+    also the *largest* location in the snapshot, so it outranked every real
+    finding: 22.33 against a 10.0 runner-up.
+
+    Same argument the equipment rule has always made — an asset that was never
+    identified has the site's arrival rate for an MTBF — so both now ask here.
     """
-    if row["group"] == "(unspecified)" or row["issue_count"] < MIN_GROUP_ISSUES:
+    return bool(name) and name not in UNKNOWN
+
+
+def placed(building: str | None, floor: str | None) -> bool:
+    """A location is both of its parts. Guarding only the floor would let a
+    known floor of an unknown building through, and `Unknown` is a sentinel for
+    the same reason `Unspecified` is."""
+    return identified(building) and identified(floor)
+
+
+def asset_mtbf(row: dict) -> float | None:
+    """An asset failing faster than it should. An asset that was never
+    identified is not one, so `(unspecified)` is skipped."""
+    if not identified(row["group"]) or row["issue_count"] < MIN_GROUP_ISSUES:
         return None
     return None if row["mtbf_days"] >= MTBF_DAYS else MTBF_DAYS / max(row["mtbf_days"], 0.01)
 
@@ -302,6 +332,25 @@ if __name__ == "__main__":
 
     assert duplicates({**profile, "duplicate_rate": 0.6}) == 2.0
     assert duplicates({**profile, "duplicate_rate": 0.6, "total": 3}) is None
+
+    # A group name is a place or a thing, or it is the bucket of everything the
+    # parser could not place — and that bucket is the biggest group in the data,
+    # so nothing keyed on it may score.
+    assert identified("07") is True
+    assert identified("Annex") is True
+    assert identified("DIC-AC-0032") is True
+    assert identified("Unspecified") is False      # the importer's floor sentinel
+    assert identified("Unknown") is False          # ...and its building sentinel
+    assert identified("(unspecified)") is False    # the equipment fallback
+    assert identified("") is False
+    assert identified(None) is False
+
+    # A location needs both parts: the real card was "Unknown / Unspecified".
+    assert placed("Annex", "07") is True
+    assert placed("Annex", "Unspecified") is False
+    assert placed("Unknown", "07") is False
+    assert placed("Unknown", "Unspecified") is False
+    assert placed(None, None) is False
 
     # An asset is only an asset if it was actually identified.
     assert asset_mtbf({"group": "DIC-AC-0032", "issue_count": 8, "mtbf_days": 30.0}) == 2.0

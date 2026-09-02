@@ -83,7 +83,16 @@ def parse_dt(value: str | None) -> str | None:
 
 
 def parse_location(value: str | None) -> tuple[str, str, str | None]:
-    """Split the location path into (building, floor, room)."""
+    """Split the location path into (building, floor, room).
+
+    ponytail: the path is the only thing read, so 248 rows land on
+    `UNKNOWN_FLOOR` — but 159 of them name their level in the *title*
+    ("Annex Level 5 05A230", "Annex Level 3 near lift lobby"). Recovering those
+    is todo (2) on this branch: `triage/insights.identified` currently silences
+    every card keyed on the unknown bucket, which is correct but throws away a
+    real floor's worth of findings each. Needs a `--reset` re-import, so it
+    waits for the running backfill.
+    """
     segments = [s.strip() for s in (value or "").split(">")]
     tail = segments[LOCATION_PREFIX_SEGMENTS:]
     building = tail[0] if len(tail) > 0 and tail[0] else UNKNOWN_BUILDING

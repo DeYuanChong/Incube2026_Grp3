@@ -381,6 +381,10 @@ def insights(session: Session) -> list[dict]:
         )
         named = ever.get(cluster["cluster_key"], [])
         sample = named[0] if named else None
+        # An unplaceable location is not one (`rules.placed`). Read off the
+        # fact, never off the key.
+        if sample and not rules.placed(sample.building, sample.floor):
+            continue
         # With no fact left to read the parts off (the snapshot was rebuilt),
         # fall back to prettifying the key for display only — never split it
         # back into fields, which a building containing "|" breaks.
@@ -419,6 +423,8 @@ def insights(session: Session) -> list[dict]:
 
     for profile in profiles(session, by="location"):
         facts = location_groups.get(profile["group"], [])
+        if facts and not rules.placed(facts[0].building, facts[0].floor):
+            continue
         recent = sorted(
             (f for f in facts if f.created_at >= recent_cutoff),
             key=lambda f: f.created_at,
@@ -551,6 +557,8 @@ def insights(session: Session) -> list[dict]:
     baseline = rules.repair_baseline(location_mttr)
     for row in location_mttr:
         facts = location_groups.get(row["group"], [])
+        if facts and not rules.placed(facts[0].building, facts[0].floor):
+            continue
         # The evidence for a repair timing is the repairs, not every ticket.
         repaired = sorted((f for f in facts if f.fixed_at), key=lambda f: f.created_at)
         sample = repaired[0] if repaired else None
@@ -663,6 +671,8 @@ def insights(session: Session) -> list[dict]:
             if len(linked) < rules.PATTERN_MIN_MEMBERS:
                 continue
             sample = linked[0]
+            if not rules.placed(sample.building, sample.floor):
+                continue
             where = f"{sample.building} / {sample.floor}"
             out.append(_insight(
                 id=f"pattern:{scan.group_key}:{n}",
