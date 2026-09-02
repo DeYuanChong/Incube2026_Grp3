@@ -114,6 +114,7 @@ export default function AiInsights() {
           value={kind}
           onChange={setKind}
           labelOf={(v) => (v === 'All' ? 'All' : kindToken(v).label)}
+          titleOf={(v) => (v === 'All' ? 'Every insight kind' : kindToken(v).hint)}
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 11.5, color: 'var(--muted-2)' }}>Surface as</span>

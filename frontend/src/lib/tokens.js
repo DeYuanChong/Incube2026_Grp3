@@ -48,10 +48,21 @@ export const CATEGORY_LABEL = {
 
 export const CATEGORY_ORDER = Object.keys(CATEGORY_LABEL)
 
+// `hint` is what the kind claims, not what the rule measured — the badges are
+// the only place the three words are defined for a reader.
 export const INSIGHT_KIND = {
-  systemic: { c: '#d9480f', bg: '#fdf0e7', label: 'Systemic' },
-  predictive: { c: '#1b65f8', bg: '#eaf1fe', label: 'Predictive' },
-  'pre-emptive': { c: '#00a0c4', bg: '#e4f8fd', label: 'Pre-emptive' },
+  systemic: {
+    c: '#d9480f', bg: '#fdf0e7', label: 'Systemic',
+    hint: 'These tickets are one fault. A shared cause has been identified, not just volume.',
+  },
+  predictive: {
+    c: '#1b65f8', bg: '#eaf1fe', label: 'Predictive',
+    hint: 'This is getting worse against its own baseline. Nothing is named as broken yet.',
+  },
+  'pre-emptive': {
+    c: '#00a0c4', bg: '#e4f8fd', label: 'Pre-emptive',
+    hint: 'A standing condition with an obvious lever — act now and the next tickets do not arrive.',
+  },
 }
 
 export const sev = (value) => SEV[value] || SEV.untriaged
