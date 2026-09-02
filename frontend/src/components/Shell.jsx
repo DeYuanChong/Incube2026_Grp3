@@ -36,13 +36,6 @@ export const ROUTES = [
     roles: ['admin'],
   },
   {
-    path: '/fix-verify',
-    label: 'Fix & Verify',
-    title: 'Fix & Verify',
-    sub: 'Work orders and proof of work',
-    roles: ['maintenance', 'admin'],
-  },
-  {
     path: '/notifications',
     label: 'Notifications',
     title: 'Notifications',
@@ -52,8 +45,9 @@ export const ROUTES = [
   },
 ]
 
-// Not in the sidebar, but the topbar still needs to name it.
-const DETAIL = { title: 'Defect detail', sub: 'Triage, verification and history' }
+// Not in the sidebar, but the topbar still needs to name it. Fix & Verify was
+// folded in here, so this is where the work order and its proofs live too.
+const DETAIL = { title: 'Defect detail', sub: 'Work order, proof of work and history' }
 
 export function screenFor(pathname) {
   if (pathname.startsWith('/issues/')) return DETAIL

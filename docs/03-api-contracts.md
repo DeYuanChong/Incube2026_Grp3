@@ -49,12 +49,14 @@ service-local. Gateway mapping: `/api/reporting/*→:8001/*`, `/api/triage/*→:
 | Method & path | Purpose |
 |---|---|
 | `GET /work-orders` | List; filters `status`, `assignee`, `issue_id`. |
-| `GET /work-orders/{id}` | Work order + proofs. |
+| `GET /work-orders/{id}` | Work order + its **submitted** proofs; staged ones are not part of the record yet. |
 | `POST /work-orders/{id}/start` | `{assignee}` → status `in_progress`; PATCHes issue → `in_progress`; emits `work_order.started`. |
 | `GET /work-orders/{id}/evidence-recommendation` | LLM recommendation: `{recommended: [{media_type, what, why}], requires_human_verification, rationale}`. Cached on the work order. |
-| `POST /work-orders/{id}/proofs` | Multipart: `file`, `note?`. Runs vision relevance check against issue description. `relevant` → issue `pending_verification`, emits `proof.uploaded`; `irrelevant` → HTTP 422 with `{ai_verdict, ai_reason}`, emits `proof.rejected` (uploader must re-upload). `inconclusive`/non-visual → stored, flagged for human review. Also accepted on an **`open`** work order: this means the defect was already resolved on arrival (or self-serviced) — the work order is marked `resolved_on_arrival` and the issue jumps `triaged → pending_verification`, skipping `in_progress`. |
+| `POST /work-orders/{id}/proofs` | **Phase 1 of two.** Multipart: `file`, `note?`. Stores the file and runs the vision relevance check against the issue description, then stops. Returns the `Proof` with `staged: true` and its `{ai_verdict, ai_reason, ai_confidence}`. The work order and issue do **not** move and no event fires. The verdict is advisory — even a confident `irrelevant` does not block, it is returned for the uploader to weigh. |
+| `POST /proofs/{id}/submit` | **Phase 2.** Multipart `note?` (overwrites the staged note, which may have been edited after the check). The uploader stands behind the proof: `staged → false`, work order → `pending_human_verification`, issue → `pending_verification`, emits `proof.uploaded`. 409 if already submitted. Submitting against an **`open`** work order means the defect was already resolved on arrival (or self-serviced) — the work order is marked `resolved_on_arrival` and the issue jumps `triaged → pending_verification`, skipping `in_progress`. |
+| `DELETE /proofs/{id}` | Discard a **staged** proof the uploader chose not to put forward: row and file are both deleted. 409 on a submitted proof — a submitted proof is part of the record, and rejecting it is what human verification is for. |
 | `GET /proofs/{id}/file` | Serve the uploaded file. |
-| `POST /proofs/{id}/human-verify` | Admin: `{approved: bool, notes?}`. Approved → issue `verified`, emits `issue.verified`; rejected → work order back to `awaiting_proof`, issue `in_progress`. |
+| `POST /proofs/{id}/human-verify` | Admin: `{approved: bool, notes?}`. 409 on a staged proof — nobody has put it forward yet. Approved → issue `verified`, emits `issue.verified`; rejected → work order back to `awaiting_proof`, issue `in_progress`. |
 | `POST /webhooks/events` | Receiver (`issue.triaged` → auto-create work order). Skipped when the issue is a duplicate whose group primary already has a live work order — one defect, one dispatch (doc 05). |
 
 ## Notification service (:8004)

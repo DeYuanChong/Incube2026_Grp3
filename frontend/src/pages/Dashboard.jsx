@@ -48,6 +48,14 @@ const ROW_LIMIT = 500
 
 const SLA_TONE = { danger: 'var(--danger)', warn: 'var(--warn)', muted: 'var(--muted-2)' }
 
+// Statuses that are the caller's own queue rather than someone else's, so the
+// row can say "this one is waiting on you". Only maintenance has one on this
+// screen: `triaged` is a work order nobody has claimed, `in_progress` is one
+// they claimed and still owe proof for. Admin's queue is really
+// `pending_verification` and a reporter's is `verified`, but neither has been
+// asked for — add them here when they are.
+const ACTION_STATUSES = { maintenance: ['triaged', 'in_progress'] }
+
 // `openOnly` is its own dimension rather than a pretend status: the status
 // pills are exactly the reporting.issues.status enum, and "open" is the
 // complement of the two terminal states, not a value of the column.
@@ -131,6 +139,12 @@ export default function Dashboard({ identity }) {
 
   const month = stats?.month
   const breachDays = stats?.sla_breach_days ?? 30
+
+  const mine = ACTION_STATUSES[identity.role] || []
+  const actionCount = useMemo(
+    () => rows.filter((issue) => mine.includes(issue.status)).length,
+    [rows, identity.role],
+  )
 
   // Offer only the statuses this caller is scoped to. The server states the
   // scope, so the pill row cannot drift from what the table can contain.
@@ -265,6 +279,20 @@ export default function Dashboard({ identity }) {
             <span style={{ fontWeight: 600, color: 'var(--text)' }}>{rows.length}</span>
             {issues && issues.length >= ROW_LIMIT ? ` of the newest ${ROW_LIMIT}` : ''}
             {rows.length === 1 ? ' defect matches' : ' defects match'}
+            {/* Ties the accent rule on the rows to what it means, so the
+                highlight is legible without a separate legend. */}
+            {actionCount > 0 && (
+              <span style={{ marginLeft: 10 }}>
+                <span
+                  style={{
+                    display: 'inline-block', width: 3, height: 11, borderRadius: 2,
+                    background: 'var(--accent)', marginRight: 6, verticalAlign: '-1px',
+                  }}
+                />
+                <span style={{ fontWeight: 600, color: 'var(--text)' }}>{actionCount}</span>
+                {' awaiting you'}
+              </span>
+            )}
           </div>
         </div>
 
@@ -290,7 +318,13 @@ export default function Dashboard({ identity }) {
             />
           )}
           {rows.map((issue) => (
-            <Row key={issue.id} issue={issue} sevView={sevView} breachDays={breachDays} />
+            <Row
+              key={issue.id}
+              issue={issue}
+              sevView={sevView}
+              breachDays={breachDays}
+              actionable={mine.includes(issue.status)}
+            />
           ))}
         </div>
       </div>
@@ -298,13 +332,15 @@ export default function Dashboard({ identity }) {
   )
 }
 
-function Row({ issue, sevView, breachDays }) {
+function Row({ issue, sevView, breachDays, actionable }) {
   const { breached, daysOver } = slaState(issue)
   const sla = slaLabel(issue)
   const repeats = issue.duplicate_count > 1 ? issue.duplicate_count : 0
 
   return (
-    <div className={`grid-row grid-body${breached ? ' breached' : ''}`}>
+    <div
+      className={`grid-row grid-body${actionable ? ' actionable' : ''}${breached ? ' breached' : ''}`}
+    >
       <div className="cell-mono">
         <Link to={`/issues/${issue.id}`}>{issue.reference_no}</Link>
       </div>

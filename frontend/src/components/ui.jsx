@@ -1,6 +1,13 @@
 // The small pieces every page was hand-rolling: KPI tiles, filter pills, the
 // segmented toggle, chips, and loading/empty/error states.
-import { STATUS_COLOR, chipStyle, sev as sevToken, statusLabel } from '../lib/tokens'
+import {
+  LIFECYCLE_STEPS,
+  STATUS_COLOR,
+  STATUS_STAMP,
+  chipStyle,
+  sev as sevToken,
+  statusLabel,
+} from '../lib/tokens'
 
 export function Chip({ color, background, children, style }) {
   return (
@@ -58,6 +65,178 @@ export function StatusCell({ value }) {
     </div>
   )
 }
+
+
+/**
+ * Where a defect sits in its lifecycle, as a horizontal rail.
+ *
+ * Two things stop this being a plain index comparison:
+ *
+ *  - `in_progress` can be *skipped*. The resolved-on-arrival path goes
+ *    triaged → pending_verification directly, so a step behind the current one
+ *    is only "done" if its timestamp column was actually stamped.
+ *  - The rail moves *backwards*. A rejected proof sends pending_verification →
+ *    in_progress and a reporter dispute sends verified → in_progress, so steps
+ *    ahead of the current one return to "upcoming" even though their column is
+ *    still populated from the first pass. The caption explains why.
+ */
+function railSteps(issue) {
+  const cancelled = issue.status === 'cancelled'
+  // A cancellation always branches off `reported`, so it occupies slot 2 —
+  // where `triaged` would have been had the defect gone on living.
+  const current = cancelled ? 1 : LIFECYCLE_STEPS.indexOf(issue.status)
+
+  return LIFECYCLE_STEPS.map((status, i) => {
+    if (cancelled && i === 1) {
+      return {
+        status: 'cancelled',
+        label: 'Cancelled',
+        state: 'cancelled',
+        // cancel stamps only updated_at — there is no closed_at to fall back on
+        at: issue.updated_at,
+      }
+    }
+    const at = issue[STATUS_STAMP[status]]
+    let state
+    // A cancelled defect was still genuinely reported; only what comes after
+    // the cancellation became unreachable.
+    if (cancelled) state = i < current ? 'done' : 'unreachable'
+    else if (i < current) state = at ? 'done' : 'skipped'
+    else if (i === current) state = 'current'
+    else state = 'upcoming'
+    return { status, label: statusLabel(status), state, at }
+  })
+}
+
+const STEP_TITLE = {
+  skipped: 'Skipped — the defect was already resolved when maintenance arrived',
+  upcoming: 'Not reached yet',
+  unreachable: 'Never reached — the defect was cancelled',
+}
+
+function stepTitle(step) {
+  if (STEP_TITLE[step.state]) return STEP_TITLE[step.state]
+  return step.at ? new Date(step.at).toLocaleString() : undefined
+}
+
+/** The work order's substate, which the issue status alone cannot show — most
+ *  importantly a rejected proof, which moves the work order but not the issue. */
+function railCaption(issue, work) {
+  if (issue.status === 'cancelled') {
+    return {
+      lead: 'Cancelled',
+      text: issue.cancellation_reason || 'No reason recorded.',
+      alert: true,
+    }
+  }
+
+  const wo = work?.work_order
+  if (!wo) return null
+
+  const arrival = wo.resolved_on_arrival
+    ? ' Resolved on arrival — no work was started.'
+    : ''
+
+  if (wo.status === 'awaiting_proof') {
+    // Proofs come back ordered created_at ascending, so the last is the newest.
+    const last = work.proofs?.[work.proofs.length - 1]
+    let why = 'The last upload was not accepted.'
+    if (last?.human_verdict === 'rejected') {
+      why = last.human_notes
+        ? `Sign-off rejected: ${last.human_notes}`
+        : 'Sign-off was rejected.'
+    } else if (last?.ai_verdict === 'irrelevant') {
+      why = last.ai_reason
+        ? `The last upload was judged unrelated: ${last.ai_reason}`
+        : 'The last upload was judged unrelated to this defect.'
+    }
+    return { lead: 'Awaiting proof', text: `${why} A replacement is needed.`, alert: true }
+  }
+
+  if (wo.status === 'open') {
+    return {
+      lead: 'Not started',
+      text: `Waiting for a maintenance user to pick this up.${arrival}`,
+    }
+  }
+  if (wo.status === 'in_progress') {
+    return {
+      lead: 'Work underway',
+      text: `${wo.assignee ? `Assigned to ${wo.assignee}.` : 'Unassigned.'}${arrival}`,
+    }
+  }
+  if (wo.status === 'pending_human_verification') {
+    return {
+      lead: 'Awaiting sign-off',
+      text: `Proof uploaded; an admin still has to approve it.${arrival}`,
+    }
+  }
+  if (wo.status === 'verified') {
+    return {
+      lead: 'Signed off',
+      text: `The proof was approved.${arrival}`,
+    }
+  }
+  return null
+}
+
+export function LifecycleRail({ issue, work }) {
+  const steps = railSteps(issue)
+  const current = steps.findIndex((s) => s.state === 'current' || s.state === 'cancelled')
+  const caption = railCaption(issue, work)
+
+  return (
+    <div>
+      <div className="lifecycle">
+        {steps.map((step, i) => (
+          <div
+            key={step.status}
+            className={`lifecycle-step${step.state === 'unreachable' ? ' unreachable' : ''}`}
+          >
+            <div className="lifecycle-track">
+              {/* the filled track runs up to the current dot and stops there */}
+              <span className={`lifecycle-line${i <= current ? ' filled' : ''}`} />
+              <span
+                className={`lifecycle-dot ${step.state}`}
+                style={
+                  step.state === 'current'
+                    ? { background: STATUS_COLOR[step.status] }
+                    : undefined
+                }
+                title={stepTitle(step)}
+              />
+              <span className={`lifecycle-line${i < current ? ' filled' : ''}`} />
+            </div>
+            <div className={`lifecycle-label ${step.state}`}>{step.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {caption && (
+        <div className={`lifecycle-caption${caption.alert ? ' alert' : ''}`}>
+          <strong>{caption.lead}</strong> — {caption.text}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * A hover/focus hint on a field label. Purely presentational — it explains, it
+ * never acts, so pointing at it costs nothing. Anything that fetches or changes
+ * state belongs in a control the user deliberately clicks.
+ */
+export function InfoHint({ label, children }) {
+  return (
+    <span className="info" tabIndex={0} role="button" aria-label={label}>
+      i
+      <span className="info-pop" role="tooltip">
+        <span className="info-pop-body">{children}</span>
+      </span>
+    </span>
+  )
+}
+
 
 const DELTA_TONE = {
   danger: 'var(--danger)',

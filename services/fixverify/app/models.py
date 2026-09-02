@@ -46,6 +46,11 @@ class Proof(SQLModel, table=True):
     ai_verdict: str | None = None  # relevant | irrelevant | inconclusive
     ai_reason: str | None = None  # shown to uploader on rejection
     ai_confidence: float | None = None
+    # A staged proof has been checked by the AI but not yet put forward by the
+    # uploader. It is invisible to work-order detail and to human verification
+    # until POST /proofs/{id}/submit, and is deleted outright if discarded —
+    # the record should only ever hold proofs someone actually stood behind.
+    staged: bool = Field(default=False, index=True)
     human_verdict: str | None = None  # approved | rejected
     human_verifier: str | None = None
     human_notes: str | None = None

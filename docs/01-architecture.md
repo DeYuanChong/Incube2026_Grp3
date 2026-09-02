@@ -61,8 +61,9 @@ flowchart LR
   (photos, before/after readings, audio) and whether it is visually verifiable
   at all (`requires_human_verification`).
 - Proof upload (multipart) → vLLM vision model checks relevance against the
-  issue description → `accepted` (admin notified for final verification) or
-  `rejected` with a human-readable reason (uploader must re-upload).
+  issue description → the proof is *staged* with its verdict and reason, and the
+  uploader decides whether to put it forward (`POST /proofs/{id}/submit`) or
+  discard it. The verdict never blocks; admin sign-off is the real gate.
 - Human verification endpoint → PATCHes issue status in reporting, emits
   `proof.accepted` / `proof.rejected` / `issue.verified`.
 - Files stored on local disk under `data/uploads/` (PoC).

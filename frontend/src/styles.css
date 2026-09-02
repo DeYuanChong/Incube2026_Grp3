@@ -186,8 +186,56 @@ a:hover { color: var(--accent-deep); }
   font-size: 13px; background: var(--surface);
 }
 .grid-body:hover { background: var(--row-hover); }
+/* A row sitting in the caller's own queue — something here is waiting on them.
+   Declared before .breached on purpose: equal specificity, so past SLA wins the
+   row when a defect is both, which is the more urgent read of the two. */
+.grid-body.actionable { background: #f6faff; box-shadow: inset 3px 0 0 var(--accent); }
+.grid-body.actionable:hover { background: #eef5ff; }
 .grid-body.breached { background: #fff6f6; box-shadow: inset 3px 0 0 var(--danger); }
 .grid-body.breached:hover { background: #fff0f0; }
+/* The defect workspace reuses the grid-row vocabulary with its own column
+   shapes: proof history and the event timeline are narrower than the queue. */
+.proof-grid {
+  grid-template-columns: minmax(170px, 1.3fr) minmax(150px, 1fr) 128px 128px 176px;
+  min-width: 800px;
+}
+.timeline-grid {
+  grid-template-columns: 150px 172px minmax(180px, 1fr) 150px;
+  min-width: 700px;
+}
+/* Advisory content that shouldn't compete with the control it describes: an
+   info dot on a field label, revealed on hover or keyboard focus. The popover
+   pads its own top instead of using a margin, so the gap stays hoverable. */
+.info {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 15px; height: 15px; border-radius: 50%; flex: 0 0 auto; box-sizing: border-box;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted-2);
+  font-size: 10px; font-weight: 700; font-style: italic; line-height: 1; cursor: help;
+  user-select: none;
+}
+.info:hover, .info:focus { border-color: var(--accent); color: var(--accent); outline: none; }
+.info-pop {
+  display: none; position: absolute; top: 100%; left: -7px; z-index: 20;
+  width: 302px; padding-top: 8px; cursor: auto; font-style: normal; font-weight: 400;
+}
+.info:hover .info-pop, .info:focus .info-pop { display: block; }
+/* The panel paints its own surface. It used to lean on .ai-frame's
+   `.ai-frame > * { background: var(--surface) }` for that, which was wrong
+   twice over: the gradient frame marks AI-generated content and this is static
+   explanatory text, and dropping the wrapper left the tooltip transparent. */
+.info-pop-body {
+  display: block; padding: 11px 13px; text-align: left;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(11, 18, 32, 0.16);
+  color: var(--text-2); font-size: 12px; line-height: 1.5;
+  white-space: normal; overflow-wrap: break-word;
+}
+
+/* Section heading inside a .card, matching .grid-header's eyebrow treatment */
+.card-eyebrow {
+  font-size: 11px; color: var(--muted-2); font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
 .cell-mono {
   font-family: var(--mono); font-size: 12px; color: var(--muted);
   min-width: 0; overflow: hidden; text-overflow: ellipsis;
@@ -195,6 +243,52 @@ a:hover { color: var(--accent-deep); }
 .cell-truncate { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
 .sev-tick { width: 16px; height: 7px; border-radius: 3px; }
+
+/* ---------- Lifecycle rail (defect workspace) ---------- */
+/* Six equal cells; each holds a track row (line, dot, line) above a label, so
+   the connectors sit on the dot's centre line without absolute positioning. */
+.lifecycle { display: grid; grid-template-columns: repeat(6, 1fr); }
+.lifecycle-step { min-width: 0; text-align: center; }
+.lifecycle-track { display: flex; align-items: center; height: 14px; }
+.lifecycle-line { flex: 1; height: 2px; background: var(--border); }
+.lifecycle-line.filled { background: var(--accent); }
+/* The far edges have nothing to connect to */
+.lifecycle-step:first-child .lifecycle-line:first-child,
+.lifecycle-step:last-child .lifecycle-line:last-child { background: transparent; }
+
+.lifecycle-dot {
+  flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%;
+  box-sizing: border-box; background: var(--surface);
+  border: 1.5px solid var(--border);
+}
+.lifecycle-dot.done { background: var(--accent); border-color: var(--accent); }
+.lifecycle-dot.current {
+  width: 13px; height: 13px; border: 0;
+  /* the ring is drawn with a spread shadow so it does not shift the track */
+  box-shadow: 0 0 0 3.5px var(--accent-soft);
+}
+.lifecycle-dot.skipped { border-style: dotted; border-color: var(--muted-2); }
+.lifecycle-dot.cancelled {
+  width: 13px; height: 13px; border: 0; background: var(--danger);
+  box-shadow: 0 0 0 3.5px var(--danger-soft);
+}
+
+.lifecycle-label {
+  font-size: 10.5px; line-height: 1.3; margin-top: 8px; padding: 0 4px;
+  color: var(--muted-2);
+}
+.lifecycle-label.done { color: var(--muted); }
+.lifecycle-label.current { color: var(--text); font-weight: 600; }
+.lifecycle-label.cancelled { color: var(--danger); font-weight: 600; }
+/* Everything after a cancellation is unreachable, not merely pending */
+.lifecycle-step.unreachable { opacity: 0.4; }
+
+.lifecycle-caption {
+  margin-top: 13px; padding-top: 11px; border-top: 1px solid var(--border-soft);
+  font-size: 11.5px; line-height: 1.45; color: var(--muted);
+}
+.lifecycle-caption strong { color: var(--text); font-weight: 600; }
+.lifecycle-caption.alert strong { color: var(--warn); }
 
 /* Gradient hairline frame, the mock's marker for anything AI-generated */
 .ai-frame { background: var(--grad); padding: 1.5px; border-radius: 10px; }

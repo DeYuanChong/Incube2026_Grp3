@@ -18,6 +18,3 @@ VLLM_TEXT_MODEL = os.getenv("VLLM_TEXT_MODEL", "")
 VLLM_VISION_MODEL = os.getenv("VLLM_VISION_MODEL", os.getenv("VLLM_TEXT_MODEL", ""))
 AI_TIMEOUT_SECONDS = float(os.getenv("AI_TIMEOUT_SECONDS", "30"))
 
-# Auto-reject only clearly-unrelated proofs the model is confident about;
-# below this bar an "irrelevant" verdict is stored but routed to human review
-RELEVANCE_REJECT_CONFIDENCE = 0.8

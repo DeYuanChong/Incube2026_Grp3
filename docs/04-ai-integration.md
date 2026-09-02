@@ -86,19 +86,24 @@ user uploads is still processed.
   partial views, poor lighting, surrounding context) count as `relevant`, and
   `irrelevant` is reserved for clearly unrelated uploads (selfies, random
   screenshots, a different room entirely).
-- **Policy**:
-  - `relevant` → proof accepted for human verification; issue →
-    `pending_verification`; admin notified (`proof.uploaded`).
-  - `irrelevant` with confidence ≥ `RELEVANCE_REJECT_CONFIDENCE` (0.8) →
-    HTTP 422 with the `reason` (e.g. *"The photo shows a corridor, but the
-    issue describes a leaking toilet cistern"*); uploader must re-upload.
-    The rejected proof row is kept for audit. Below the bar, the proof is
-    stored and routed to human review instead.
+- **Policy — the verdict advises, it never decides.** The check runs on upload
+  (`POST /work-orders/{id}/proofs`) but only *stages* the proof: nothing moves
+  until the uploader submits it. Every verdict is shown to them with the reason
+  and confidence, alongside two choices — put it forward, or discard it and pick
+  another file.
+  - `relevant` → *"Use this proof"*.
+  - `irrelevant` → *"Submit anyway"*, worded more strongly at confidence ≥ 0.8
+    (e.g. *"The photo shows a corridor, but the issue describes a leaking toilet
+    cistern"*). **This does not block.** The uploader is on site and the model is
+    not; if they say the photo is right, it goes forward and the admin judges it.
   - `inconclusive`, non-image media, vision endpoint down, or
-    `requires_human_verification` → accepted as *unverified*, flagged for the
-    human to judge (AI never blocks a fix from reaching a human).
-- **Final say is always human**: AI relevance is a pre-filter; an admin performs
-  the actual verification (`POST /proofs/{id}/human-verify`).
+    `requires_human_verification` → no useful signal, so the panel simply asks
+    them to confirm (AI never blocks a fix from reaching a human).
+  - A discarded proof is deleted outright, file and row — it was never put
+    forward, so it is not part of the record. Only submitted proofs are.
+- **Final say is always human, twice over**: the uploader decides what to put
+  forward, and an admin performs the actual verification
+  (`POST /proofs/{id}/human-verify`).
 
 ## 6. Photo verification & recategorization (Reporting)
 

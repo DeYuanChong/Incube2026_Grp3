@@ -37,6 +37,9 @@ SLA_SETTLED_STATUSES = ("pending_verification", "verified", "closed", "cancelled
 # Role scoping for the dashboard. Reporters see only what they filed;
 # maintenance sees only work that has reached their end of the pipeline.
 MAINTENANCE_STATUSES = (
+    # triaged is in scope: a triaged issue has an open work order waiting to be
+    # picked up, so it is maintenance's inbox, not someone else's backlog.
+    "triaged",
     "in_progress",
     "pending_verification",
     "verified",

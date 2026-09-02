@@ -30,6 +30,8 @@ async function request(path, { method = 'GET', body, formData } = {}) {
     err.status = res.status
     throw err
   }
+  // 204 carries no body — parsing it would throw on an otherwise fine response
+  if (res.status === 204) return null
   return res.json()
 }
 
@@ -83,19 +85,33 @@ export const api = {
   insights: () => request('/api/triage/analytics/insights'),
 
   // fix & verify
-  listWorkOrders: (params = {}) =>
-    request(`/api/fixverify/work-orders?${new URLSearchParams(params)}`),
+  listWorkOrders: (params = {}) => request(`/api/fixverify/work-orders?${qs(params)}`),
+  /** issue_id is unique on work_orders, so this is 0-or-1 rather than a list. */
+  workOrderForIssue: (issueId) =>
+    request(`/api/fixverify/work-orders?${qs({ issue_id: issueId })}`)
+      .then((list) => list[0] || null),
   getWorkOrder: (id) => request(`/api/fixverify/work-orders/${id}`),
   startWorkOrder: (id, assignee) =>
     request(`/api/fixverify/work-orders/${id}/start`, { method: 'POST', body: { assignee } }),
   evidenceRecommendation: (id) =>
     request(`/api/fixverify/work-orders/${id}/evidence-recommendation`),
-  uploadProof: (id, file, note) => {
+  /** Phase 1: store the file and run the AI relevance check, nothing more.
+   *  The returned proof is staged — invisible to the record until submitted. */
+  stageProof: (id, file, note) => {
     const formData = new FormData()
     formData.append('file', file)
     if (note) formData.append('note', note)
     return request(`/api/fixverify/work-orders/${id}/proofs`, { method: 'POST', formData })
   },
+  /** Phase 2: the uploader stands behind it. This is what moves the issue. */
+  submitProof: (proofId, note) => {
+    const formData = new FormData()
+    if (note) formData.append('note', note)
+    return request(`/api/fixverify/proofs/${proofId}/submit`, { method: 'POST', formData })
+  },
+  discardProof: (proofId) =>
+    request(`/api/fixverify/proofs/${proofId}`, { method: 'DELETE' }),
+  proofFileUrl: (proofId) => `${GATEWAY}/api/fixverify/proofs/${proofId}/file`,
   humanVerify: (proofId, approved, notes) =>
     request(`/api/fixverify/proofs/${proofId}/human-verify`, {
       method: 'POST', body: { approved, notes },

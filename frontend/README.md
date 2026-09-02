@@ -19,7 +19,8 @@ src/
   styles.css              design tokens (:root custom properties) + component classes
   components/
     Shell.jsx             sidebar + topbar, and ROUTES — the single nav/route table
-    ui.jsx                KpiCard, Pills, Segmented, chips, Spinner/Empty/Error states
+    ui.jsx                KpiCard, Pills, Segmented, chips, LifecycleRail,
+                          Spinner/Empty/Error states
   lib/
     tokens.js             colour + display-label maps for the real enums
     format.js             age, SLA state, location and duration formatting
@@ -27,9 +28,9 @@ src/
     Dashboard.jsx         Defects Management: KPI tiles, filter chips, grid table
     AiInsights.jsx        recommendation cards from /analytics/insights (admin)
     ReportIssue.jsx       submission, with the AI category suggestion + ETA
-    IssueDetail.jsx       one issue and its timeline
+    IssueDetail.jsx       one issue and its timeline (reporter view)
+    DefectWorkspace.jsx   one defect + its work order and proofs (maintenance/admin)
     TriageBoard.jsx       triage queue, systemic findings, MTBF/MTTR (admin)
-    FixVerify.jsx         work orders and proof of work (maintenance/admin)
     Notifications.jsx     inbox
 ```
 
@@ -44,14 +45,21 @@ variant of a table header.
 | Defects Management | `/` | all | Four KPI tiles from `GET /stats/dashboard`, four rows of filter chips, and a grid table with age vs SLA. Breached rows are tinted and carry a nudge banner. |
 | AI insights | `/insights` | admin | Systemic / predictive / pre-emptive cards from `GET /analytics/insights`, as cards or a briefing feed. Each card links back to the issues behind it. |
 | Report Issue | `/report` | reporter | AI re-categorization suggestion + ETA on submission. |
-| Defect detail | `/issues/:id` | all | Issue, triage result and timeline. |
+| Defect detail | `/issues/:id` | reporter | Issue, AI suggestions, triage result and timeline; confirm-close at `verified`. |
+| Defect workspace | `/issues/:id` | maintenance, admin | The same route for the roles that work the defect: defect header, work order (start, evidence recommendation, proof upload), proof history with admin sign-off, photos and history. |
 | Triage board | `/triage` | admin | Queue with confirm/override, systemic clusters, MTBF/MTTR by group. |
-| Fix & Verify | `/fix-verify` | maintenance, admin | Work orders, evidence recommendation, proof upload and human verification. |
 | Notifications | `/notifications` | all | Role- and user-targeted inbox. |
 
 `ROUTES` in `components/Shell.jsx` is the one place that lists a page: the
 sidebar, the topbar title and the router all read from it. Adding a page means
 adding a row there and a `<Route>` in `App.jsx`.
+
+`/issues/:id` is the exception: one route, two pages. `IssueRoute` in `App.jsx`
+sends reporters to `IssueDetail` and everyone else to `DefectWorkspace`, because
+Fix & Verify was folded into the latter — there is no separate `/fix-verify`
+page, and maintenance works entirely out of Defects Management and the defect it
+opens. Admins reach proofs awaiting sign-off by filtering the queue to
+**Pending verification**.
 
 ## Demo-mode identity
 
@@ -116,6 +124,7 @@ hex values. The webfonts (Instrument Sans, IBM Plex Mono) load from Google
 Fonts in `index.html` and fall back to the system stack offline.
 
 The `.badge.<status>` and `.badge.<severity>` classes are used by ReportIssue,
-IssueDetail, TriageBoard, FixVerify and Notifications — keep them when editing.
+IssueDetail, TriageBoard and Notifications — keep them when editing.
 `lib/tokens.js` carries the newer chip vocabulary (`SEV`, `STATUS_COLOR`,
-`STATUS_LABEL`, `CATEGORY_LABEL`) for the dashboard and insights pages.
+`STATUS_LABEL`, `CATEGORY_LABEL`, plus `WO_STATUS_*`, `URGENCY` and `VERDICT`
+for the work-order enums) for the dashboard, insights and workspace pages.
