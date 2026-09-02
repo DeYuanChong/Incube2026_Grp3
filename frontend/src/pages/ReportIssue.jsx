@@ -30,6 +30,32 @@ const ISSUE_TYPES = {
   others: ['Furniture', 'Signage', 'Lift', 'Water leak', 'Something else'],
 }
 
+// Matches the "AI assisted" mark from the mobile mock exactly (sparkle +
+// gradient text) — gradId must be unique per instance on the page since SVG
+// gradient defs are looked up by id, not scoped to their own element.
+function AiAssistedBadge({ gradId }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }} title="AI is checking…">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill={`url(#${gradId})`}>
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#1B65F8" />
+            <stop offset="100%" stopColor="#00DCFF" />
+          </linearGradient>
+        </defs>
+        <path d="M12 2l2.1 6.3L20.5 10l-6.4 1.7L12 18l-2.1-6.3L3.5 10l6.4-1.7z" />
+      </svg>
+      <span style={{
+        fontSize: 11, fontWeight: 700, letterSpacing: '0.01em',
+        background: 'linear-gradient(90deg, #1B65F8, #00DCFF)',
+        WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent',
+      }}>
+        AI assisted
+      </span>
+    </span>
+  )
+}
+
 export default function ReportIssue() {
   const navigate = useNavigate()
   const [step, setStep] = useState(1)
@@ -41,7 +67,9 @@ export default function ReportIssue() {
   const [room, setRoom] = useState('')
   const [description, setDescription] = useState('')
   const [descTouched, setDescTouched] = useState(false)
-  // { description, suggestedTitle } — either half independently nullable/actionable.
+  // { description, suggestedTitle, suggestedCategory } — description and
+  // suggestedTitle independently nullable/actionable; suggestedCategory only
+  // ever set alongside suggestedTitle.
   const [descSuggestion, setDescSuggestion] = useState(null)
   // "where"/"when" the reporter hasn't mentioned yet, from the same call as descSuggestion.
   const [descMissingDetails, setDescMissingDetails] = useState([])
@@ -53,7 +81,7 @@ export default function ReportIssue() {
   // freeform AI title isn't silently overridden by the fixed chip labels —
   // see buildTitleAndDescription().
   const [titleOverride, setTitleOverride] = useState(null)
-  // { description, title, reason } from the photo pre-check, independent of descSuggestion.
+  // { description, title, category, reason } from the photo pre-check, independent of descSuggestion.
   const [photoSuggestion, setPhotoSuggestion] = useState(null)
   const [ack, setAck] = useState(false)
   const [photos, setPhotos] = useState([])
@@ -67,6 +95,17 @@ export default function ReportIssue() {
 
   const currentTitle = () =>
     titleOverride || (issueType ? `${LABELS[category]} — ${issueType}` : LABELS[category])
+
+  // AI-suggested titles are freeform text — nothing guarantees the model
+  // actually named the category it also returned (or named a category at
+  // all, e.g. "Plumbing" isn't one of our 6). Force the accepted title to
+  // always visibly belong to one of the 6 by prefixing the real label,
+  // rather than trusting whatever prefix the model happened to write.
+  const titleForCategory = (raw, cat) => {
+    const label = LABELS[cat] || LABELS[category]
+    const trimmed = raw.trim()
+    return trimmed.toLowerCase().startsWith(label.toLowerCase()) ? trimmed : `${label} — ${trimmed}`
+  }
 
   // AI description autocomplete: after 2s of no typing, suggest a draft/continuation
   // AND check whether the typed text suggests the title itself should change.
@@ -89,7 +128,11 @@ export default function ReportIssue() {
           const suggestedDescription = res.description && res.description !== description ? res.description : null
           const suggestedTitle = res.suggested_title && res.suggested_title !== currentTitle() ? res.suggested_title : null
           if (suggestedDescription || suggestedTitle) {
-            setDescSuggestion({ description: suggestedDescription, suggestedTitle })
+            setDescSuggestion({
+              description: suggestedDescription,
+              suggestedTitle,
+              suggestedCategory: suggestedTitle ? res.suggested_category : null,
+            })
           }
           setDescMissingDetails(res.missing_details || [])
         })
@@ -108,9 +151,11 @@ export default function ReportIssue() {
   const dismissSuggestedDraft = () => setDescSuggestion((s) => (s ? { ...s, description: null } : null))
 
   const acceptDescSuggestedTitle = () => {
-    setTitleOverride(descSuggestion.suggestedTitle)
-    setIssueType('') // the freeform title no longer matches any fixed chip
-    setDescSuggestion((s) => (s ? { ...s, suggestedTitle: null } : null))
+    const cat = descSuggestion.suggestedCategory || category
+    setTitleOverride(titleForCategory(descSuggestion.suggestedTitle, cat))
+    if (descSuggestion.suggestedCategory) setCategory(descSuggestion.suggestedCategory)
+    setIssueType('') // the old chip belongs to the old category's list, not the new one
+    setDescSuggestion((s) => (s ? { ...s, suggestedTitle: null, suggestedCategory: null } : null))
   }
   const dismissDescSuggestedTitle = () => setDescSuggestion((s) => (s ? { ...s, suggestedTitle: null } : null))
 
@@ -147,6 +192,7 @@ export default function ReportIssue() {
           if (!res.suggested_title && !res.suggested_description) return
           setPhotoSuggestion({
             title: res.suggested_title || null,
+            category: res.suggested_title ? res.suggested_category || null : null,
             description: res.suggested_description || null,
             reason: res.reason,
           })
@@ -158,9 +204,11 @@ export default function ReportIssue() {
   const removePhoto = (i) => setPhotos(photos.filter((_, idx) => idx !== i))
 
   const acceptPhotoTitle = () => {
-    setTitleOverride(photoSuggestion.title)
-    setIssueType('')
-    setPhotoSuggestion((s) => (s ? { ...s, title: null } : null))
+    const cat = photoSuggestion.category || category
+    setTitleOverride(titleForCategory(photoSuggestion.title, cat))
+    if (photoSuggestion.category) setCategory(photoSuggestion.category)
+    setIssueType('') // the old chip belongs to the old category's list, not the new one
+    setPhotoSuggestion((s) => (s ? { ...s, title: null, category: null } : null))
   }
   const dismissPhotoTitle = () => setPhotoSuggestion((s) => (s ? { ...s, title: null } : null))
   const acceptPhotoDescription = () => {
@@ -294,8 +342,7 @@ export default function ReportIssue() {
     <div className="card report-mobile">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
         <button type="button" className="secondary" onClick={() => setStep(1)}>←</button>
-        <span className="cat-pill">{LABELS[category]}</span>
-        {titleOverride && <span className="cat-pill">Title: {titleOverride}</span>}
+        <span className="cat-pill">{titleOverride || LABELS[category]}</span>
       </div>
       <form onSubmit={submit}>
         <label>Mobile number</label>
@@ -337,14 +384,9 @@ export default function ReportIssue() {
                     onClick={() => pickIssueType(t)}>{t}</button>
           ))}
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-          Describe more (optional)
-          {(descChecking || photoCheckCount > 0) && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }} title="AI is checking…">
-              <span className="ai-dot" />
-              <span className="ai-text" style={{ fontSize: 11 }}>Checking…</span>
-            </span>
-          )}
+        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>Describe more (optional)</span>
+          {descChecking && <AiAssistedBadge gradId="aigrad-desc" />}
         </label>
         <textarea rows={4} value={description}
                   onChange={(e) => { setDescription(e.target.value); setDescTouched(true) }}
@@ -394,7 +436,10 @@ export default function ReportIssue() {
             )}
           </div>
         )}
-        <label>Photo (optional)</label>
+        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>Photo (optional)</span>
+          {photoCheckCount > 0 && <AiAssistedBadge gradId="aigrad-photo" />}
+        </label>
         <div className="photo-preview-row">
           {photos.map((file, i) => (
             <div key={i} className="photo-preview">

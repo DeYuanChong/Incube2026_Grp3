@@ -66,6 +66,9 @@ class SuggestDescriptionResponse(BaseModel):
     confidence: float | None = None
     suggested_title: str | None = None
     title_confidence: float | None = None
+    # Set only alongside suggested_title, so accepting the title also moves
+    # the reporter to the chip list for the category it actually fits.
+    suggested_category: Category | None = None
     # "where"/"when" the reporter hasn't mentioned yet — rides this same call
     # rather than a separate AI round trip (docs/04 §7).
     missing_details: list[str] = []

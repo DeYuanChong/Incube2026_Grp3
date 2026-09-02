@@ -57,7 +57,12 @@ Task 2 — title check: using only what the reporter typed in the description
 (not the title itself), decide whether the current title still accurately
 summarizes the defect. Only propose a replacement if their words describe a
 clearly different problem than the title says — not just extra detail on the
-same problem. Keep it short (under 10 words). Otherwise return null.
+same problem. Keep it short (under 10 words). Otherwise return null. When you
+do propose a replacement title, also classify which single category it now
+belongs to — one of: air_conditioning, lighting, cleanliness, toilet,
+physical_security, others — so the reporter isn't left with a title that no
+longer matches their chosen category. Leave suggested_category null whenever
+suggested_title is null.
 
 Task 3 — missing details: the building/floor are already captured elsewhere
 (shown above as Location), so don't ask for those. Only using what the
@@ -74,5 +79,7 @@ Respond with strict JSON only:
 {{"description": "<1-2 sentence description, or empty string>", "confidence": <0.0-1.0>,
 "suggested_title": "<a corrected short title, or null>",
 "title_confidence": <0.0-1.0, or null>,
+"suggested_category": "<one of: air_conditioning, lighting, cleanliness,
+toilet, physical_security, others, or null>",
 "missing_details": ["where", "when"]}}
 """

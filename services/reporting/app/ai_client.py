@@ -70,8 +70,8 @@ def suggest_description(
     title: str, location: str | None, existing_text: str | None = None
 ) -> dict | None:
     """Returns {"description", "confidence", "suggested_title", "title_confidence",
-    "missing_details"} (description/suggested_title independently nullable) or
-    None on failure."""
+    "suggested_category", "missing_details"} (description/suggested_title
+    independently nullable) or None on failure."""
     prompt = SUGGEST_DESCRIPTION.format(
         title=title,
         location=location or "not specified",
@@ -86,6 +86,9 @@ def suggest_description(
         data = _extract_json(resp.choices[0].message.content or "") or {}
         description = (data.get("description") or "").strip()
         suggested_title = (data.get("suggested_title") or "").strip() or None
+        suggested_category = data.get("suggested_category")
+        if not suggested_title or suggested_category not in Category.__members__:
+            suggested_category = None
         missing_details = [d for d in (data.get("missing_details") or []) if d in ("where", "when")]
         if not description and not suggested_title and not missing_details:
             return None
@@ -96,6 +99,7 @@ def suggest_description(
             "title_confidence": float(data["title_confidence"])
             if suggested_title and data.get("title_confidence") is not None
             else None,
+            "suggested_category": Category(suggested_category) if suggested_category else None,
             "missing_details": missing_details,
         }
     except Exception:
