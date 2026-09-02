@@ -102,10 +102,4 @@ export const api = {
       method: 'POST', body: { approved, notes },
     }),
 
-  // notifications
-  notifications: (unreadOnly = false) =>
-    request(`/api/notifications/notifications?unread_only=${unreadOnly}`),
-  unreadCount: () => request('/api/notifications/notifications/unread-count'),
-  markRead: (id) => request(`/api/notifications/notifications/${id}/read`, { method: 'POST' }),
-  markAllRead: () => request('/api/notifications/notifications/read-all', { method: 'POST' }),
 }

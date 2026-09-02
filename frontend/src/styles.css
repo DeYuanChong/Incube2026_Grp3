@@ -73,7 +73,6 @@ a:hover { color: var(--accent-deep); }
   font-size: 10.5px; font-weight: 600; font-family: var(--mono);
   padding: 2px 6px; border-radius: 6px; color: var(--muted-2); background: var(--border-soft);
 }
-.nav-badge.alert { color: #fff; background: var(--danger); }
 
 .sidebar-foot { margin-top: auto; padding: 14px; border-top: 1px solid var(--border-soft); }
 .avatar {
@@ -364,7 +363,6 @@ h2, h3 { letter-spacing: -0.3px; }
   background: #fffbe8; border: 1px solid #eedd88; border-radius: 8px;
   padding: 0.6rem 0.9rem; margin: 0.5rem 0;
 }
-.notif-unread { border-left: 4px solid var(--accent); }
 
 .empty { padding: 34px 20px; text-align: center; color: var(--muted-2); font-size: 13px; }
 .spinner {
@@ -396,7 +394,6 @@ h2, h3 { letter-spacing: -0.3px; }
   .detail-actions { justify-content: flex-start; }
   .stat-strip, .field-grid { grid-template-columns: 1fr; }
 }
-.notif-unread { border-left: 4px solid #2244aa; }
 
 .photo-preview-row, .photo-gallery {
   display: flex; flex-wrap: wrap; gap: 0.6rem; margin: 0.4rem 0 0.8rem;

@@ -29,26 +29,11 @@ export const ROUTES = [
     roles: ['reporter'],
   },
   {
-    path: '/triage',
-    label: 'Triage',
-    title: 'Triage board',
-    sub: 'Confirm or override the AI suggestion',
-    roles: ['admin'],
-  },
-  {
     path: '/fix-verify',
     label: 'Fix & Verify',
     title: 'Fix & Verify',
     sub: 'Work orders and proof of work',
     roles: ['maintenance', 'admin'],
-  },
-  {
-    path: '/notifications',
-    label: 'Notifications',
-    title: 'Notifications',
-    sub: 'Everything addressed to you',
-    roles: ['reporter', 'maintenance', 'admin'],
-    badge: 'unread',
   },
 ]
 
@@ -88,9 +73,7 @@ export default function Shell({ identity, onIdentityChange, badges, children }) 
                   <span>{route.label}</span>
                 </span>
                 {count > 0 && (
-                  <span className={`nav-badge${route.badge === 'unread' ? ' alert' : ''}`}>
-                    {count}
-                  </span>
+                  <span className="nav-badge">{count}</span>
                 )}
               </NavLink>
             )
