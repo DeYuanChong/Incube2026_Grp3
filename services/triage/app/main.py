@@ -117,6 +117,19 @@ def overview(
     }
 
 
+@app.get("/analytics/insights")
+def get_insights(session: Session = Depends(get_session)):
+    """Systemic, trend, asset-reliability and proof-quality findings as one
+    ranked list of recommendation cards.
+
+    Assembled here rather than in the client so the thresholds that decide what
+    is worth an admin's attention live in one place and can be checked with
+    curl. Closes the gap docs/05 records as "nobody escalates a cluster" — an
+    admin no longer has to open a triaged issue to learn about one.
+    """
+    return analytics.insights(session)
+
+
 @app.post("/analytics/sync")
 def sync_snapshot(session: Session = Depends(get_session)):
     """Full refresh of the issue_facts snapshot from reporting."""

@@ -9,3 +9,7 @@ services/*/data/
 node_modules/
 frontend/dist/
 .DS_Store
+
+
+# Go get the file from our chat, I don't want to be a security incident. Add to the scripts folder.
+*.csv

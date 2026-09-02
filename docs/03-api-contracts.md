@@ -11,6 +11,8 @@ service-local. Gateway mapping: `/api/reporting/*→:8001/*`, `/api/triage/*→:
 
 | Method & path | Purpose |
 |---|---|
+| `POST /issues` | Create issue. Body: `{category, title, description, building, floor, room?, equipment_name?}`. Runs AI categorization + ETA. Returns the issue incl. `ai_suggested_category` and `estimated_resolution_days`. Emits `issue.created`. |
+| `GET /issues` | List. Filters: `status` (repeatable), `severity` (repeatable, `untriaged` matches an unset severity), `category`, `building`, `floor`, `reporter`, `q` (text), `limit`, `offset`. **Role-scoped** from `X-Role`/`X-User` on top of those filters: a reporter sees only issues they reported, maintenance only `in_progress`/`pending_verification`/`verified`/`closed`/`cancelled`, admin everything. |
 | `POST /issues` | Create issue. Body: `{category, title, description?, building, floor, room?, equipment_name?, mobile_number, ack_confirmed}`. `description` is optional; `ack_confirmed` must be `true` (422 otherwise). Runs AI categorization. Returns the issue incl. `ai_suggested_category`. Emits `issue.created`. |
 | `GET /issues` | List. Filters: `status`, `category`, `building`, `floor`, `reporter`, `q` (text), `limit`, `offset`. |
 | `GET /issues/{id}` | Full issue + timeline (`issue_events`). |
@@ -24,7 +26,8 @@ service-local. Gateway mapping: `/api/reporting/*→:8001/*`, `/api/triage/*→:
 | `POST /issues/{id}/status` | Transition: `{status, actor, detail?}`. Validated against the state machine. Emits `issue.status_changed`. |
 | `POST /issues/{id}/close` | `{closed_by: reporter\|auto\|admin, resolution_type?, resolution_notes?}` from `verified`. Emits `issue.closed`. |
 | `POST /issues/{id}/cancel` | `{reason}` while `reported`. |
-| `GET /stats/load` | `{open_count, open_by_severity, avg_backlog_days}` — feeds dashboard. |
+| `GET /stats/load` | `{open_count, open_by_severity}` — feeds the ETA estimator's load factor. |
+| `GET /stats/dashboard` | Role-scoped KPI aggregates behind the dashboard tiles, over the caller's whole scoped population: `{scope, sla_breach_days, total_count, open_count, open_by_severity, open_by_status, open_by_category, sla: {breached, within, breach_rate}, age_buckets, duplicates, month}`. `?month=YYYY-MM` (default: current) selects the window for `month`, which carries `{key, closed, cancelled, verified, repaired, avg_mttr_days, avg_mttc_days, median_repair_days, prev_key, prev_avg_mttr_days, mttr_delta_days}`. Durations are `null`, never `0`, when the set is empty. **SLA breach** = open longer than `SLA_BREACH_DAYS` (30) and not yet `pending_verification`, `verified`, `closed` or `cancelled` — mirrored client-side in `frontend/src/lib/format.js`. |
 
 ## Triage service (:8002)
 
@@ -34,9 +37,10 @@ service-local. Gateway mapping: `/api/reporting/*→:8001/*`, `/api/triage/*→:
 | `GET /triage/results/{issue_id}` | Latest triage result. |
 | `POST /triage/results/{issue_id}/confirm` | Admin confirms or overrides `{severity?, urgency?}` → PATCHes reporting. |
 | `GET /analytics/systemic` | Clusters of repeated issues (same category+location, min count ≥ threshold) with LLM maintenance recommendations. This is what the `issue.escalated` admin notification points at — there is no separate escalations queue. |
-| `GET /analytics/metrics` | `{mtbf: [...], mttr: [...]}` grouped by `group_by=category\|building\|floor\|equipment`. |
+| `GET /analytics/metrics` | `{mtbf: [...], mttr: [...]}` grouped by `group_by=category\|building\|floor\|equipment`. `mtbf` counts one failure per duplicate group (the oldest member): a duplicate is the same defect reported again, not the asset failing again, and counting confirmations collapses MTBF towards the reporting interval. |
 | `GET /analytics/profiles` | Location profile & issue profile summaries (counts, trends). |
 | `GET /analytics/vendor-performance` | Per-assignee speed & quality: avg repair hours, proof rejection rate, resolved-on-arrival counts. Reads the `fixverify` schema directly (the sanctioned read-only cross-schema access in the shared PostgreSQL DB). |
+| `GET /analytics/insights` | Ranked recommendation cards assembled from the four aggregates above — the admin-facing read of them, and what closes doc 05's "nobody escalates a cluster" gap. Each card: `{id, kind, source, active, title, body, action, window_days, evidence[3], filter, linked_count, linked[]}`. `kind` is `systemic` (a live cluster, `action` is its stored LLM recommendation), `predictive` (a location's 30-day volume up ≥50%) or `pre-emptive` (asset MTBF under 60 days, a repeat rate over half, or an assignee whose proofs are mostly rejected). `active: false` marks a cluster that has stopped accruing members. `filter` is how to find the card's issues in the defect list (`{search, category}`) — stated here because this is the side that knows the group. No confidence score and no cost figure: nothing in the system produces either. |
 | `POST /analytics/sync` | Refresh `issue_facts` snapshot from reporting. |
 | `POST /webhooks/events` | Gateway fan-out receiver (`issue.created`, `issue.closed`). |
 

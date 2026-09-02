@@ -1,9 +1,15 @@
 import json
+import statistics
+from datetime import datetime, timedelta, timezone
 import os
 import uuid
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import or_, text
+from sqlmodel import Session, func, select
+
+from . import ai_client, config, events
 from fastapi.responses import FileResponse
 from sqlalchemy import text
 from sqlmodel import Session, func, select
@@ -35,6 +41,20 @@ def startup() -> None:
 
 def caller(x_user: str = Header("anonymous"), x_role: str = Header("reporter")):
     return {"user": x_user, "role": x_role}
+
+
+def resolve_scope(who: dict) -> dict:
+    """What this caller is allowed to see, by role.
+
+    Resolved once here and applied by both GET /issues and GET /stats/dashboard,
+    so the table and the KPI tiles above it can never disagree about the
+    population they describe.
+    """
+    if who["role"] == "reporter":
+        return {"reporter": who["user"], "statuses": None}
+    if who["role"] == "maintenance":
+        return {"reporter": None, "statuses": list(config.MAINTENANCE_STATUSES)}
+    return {"reporter": None, "statuses": None}  # admin: unrestricted
 
 
 def _log_event(session: Session, issue_id: str, event_type: str, actor: str, detail: dict):
@@ -155,7 +175,9 @@ def suggest_description(body: SuggestDescriptionRequest):
 @app.get("/issues")
 def list_issues(
     session: Session = Depends(get_session),
-    status: Status | None = None,
+    who: dict = Depends(caller),
+    status: list[Status] | None = Query(None),
+    severity: list[str] | None = Query(None),
     category: str | None = None,
     building: str | None = None,
     floor: str | None = None,
@@ -164,9 +186,19 @@ def list_issues(
     limit: int = Query(50, le=500),
     offset: int = 0,
 ):
+    scope = resolve_scope(who)
     stmt = select(Issue)
     if status:
-        stmt = stmt.where(Issue.status == status)
+        stmt = stmt.where(Issue.status.in_(status))
+    if severity:
+        # "untriaged" is the absence of a severity, not a value of it
+        wanted = [s for s in severity if s != "untriaged"]
+        clauses = []
+        if wanted:
+            clauses.append(Issue.severity.in_(wanted))
+        if "untriaged" in severity:
+            clauses.append(Issue.severity.is_(None))
+        stmt = stmt.where(or_(*clauses)) if len(clauses) > 1 else stmt.where(clauses[0])
     if category:
         stmt = stmt.where(Issue.category == category)
     if building:
@@ -175,6 +207,12 @@ def list_issues(
         stmt = stmt.where(Issue.floor == floor)
     if reporter:
         stmt = stmt.where(Issue.reporter_name == reporter)
+    # Role scope applies on top of the caller's own filters, so a reporter
+    # asking for someone else's issues still only gets their own.
+    if scope["reporter"]:
+        stmt = stmt.where(Issue.reporter_name == scope["reporter"])
+    if scope["statuses"]:
+        stmt = stmt.where(Issue.status.in_(scope["statuses"]))
     if q:
         # Fuzzy search: pg_trgm word similarity (typo-tolerant) OR plain substring
         # match, ranked by similarity (GIN index created in db.init_db)
@@ -473,6 +511,195 @@ def cancel_issue(
          "title": issue.title, "detail": body.reason},
     )
     return issue
+
+
+def _parse_ts(value: str | None) -> datetime | None:
+    """Timestamps are stored as ISO-8601 strings, not timestamptz."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _age_days(issue: Issue, now: datetime) -> float | None:
+    created = _parse_ts(issue.created_at)
+    return None if created is None else (now - created).total_seconds() / 86400
+
+
+def _is_breached(issue: Issue, now: datetime) -> bool:
+    """Agreed SLA rule: open longer than SLA_BREACH_DAYS and not yet settled.
+
+    Mirrored on the client in frontend/src/lib/format.js — change both together.
+    """
+    if issue.status.value in config.SLA_SETTLED_STATUSES:
+        return False
+    age = _age_days(issue, now)
+    return age is not None and age > config.SLA_BREACH_DAYS
+
+
+def _month_bounds(month: str | None, now: datetime) -> tuple[str, datetime, datetime]:
+    """Half-open [start, end) for a YYYY-MM key, defaulting to the current month."""
+    if month:
+        try:
+            year, mon = (int(part) for part in month.split("-", 1))
+            start = datetime(year, mon, 1, tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            raise HTTPException(422, "month must be formatted YYYY-MM")
+    else:
+        start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+    end = datetime(
+        start.year + (start.month == 12),
+        1 if start.month == 12 else start.month + 1,
+        1,
+        tzinfo=timezone.utc,
+    )
+    return f"{start.year:04d}-{start.month:02d}", start, end
+
+
+def _mean(values: list[float]) -> float | None:
+    """None, not 0, for an empty set — no data is not the same as no delay."""
+    return round(statistics.mean(values), 2) if values else None
+
+
+def _elapsed_days(issue: Issue, stamp: str | None, since: str | None) -> float | None:
+    end, start = _parse_ts(stamp), _parse_ts(since)
+    if end is None or start is None:
+        return None
+    return (end - start).total_seconds() / 86400
+
+
+def _month_metrics(issues: list[Issue], start: datetime, end: datetime) -> dict:
+    """Durations averaged over the issues that reached each stamp *in this month*.
+
+    mttc is measured directly rather than derived from mttr, because the two
+    means are taken over different sets (docs/05-triage-analytics.md §Metrics).
+    """
+    def in_window(stamp: str | None) -> bool:
+        ts = _parse_ts(stamp)
+        return ts is not None and start <= ts < end
+
+    repaired = [i for i in issues if in_window(i.fixed_at)]
+    closed = [i for i in issues if in_window(i.closed_at)]
+    repair_days = [
+        d for d in (_elapsed_days(i, i.fixed_at, i.created_at) for i in repaired)
+        if d is not None
+    ]
+    close_days = [
+        d for d in (_elapsed_days(i, i.closed_at, i.created_at) for i in closed)
+        if d is not None
+    ]
+    return {
+        "closed": len(closed),
+        # Cancelling stamps only updated_at, never closed_at, so that is the
+        # only clock available for it.
+        "cancelled": sum(
+            1 for i in issues
+            if i.status == Status.cancelled and in_window(i.updated_at)
+        ),
+        "verified": sum(1 for i in issues if in_window(i.verified_at)),
+        "repaired": len(repaired),
+        "avg_mttr_days": _mean(repair_days),
+        "avg_mttc_days": _mean(close_days),
+        "median_repair_days": (
+            round(statistics.median(repair_days), 2) if repair_days else None
+        ),
+    }
+
+
+@app.get("/stats/dashboard")
+def stats_dashboard(
+    session: Session = Depends(get_session),
+    who: dict = Depends(caller),
+    month: str | None = Query(None, description="YYYY-MM, defaults to current month"),
+):
+    """Aggregates behind the dashboard KPI tiles.
+
+    Computed over the caller's whole scoped population rather than a page of it,
+    so the headline numbers are never capped by the table's limit.
+    """
+    now = datetime.now(timezone.utc)
+    month_key, start, end = _month_bounds(month, now)
+    prev_key, prev_start, prev_end = _month_bounds(
+        f"{start.year - (start.month == 1):04d}-"
+        f"{12 if start.month == 1 else start.month - 1:02d}",
+        now,
+    )
+
+    scope = resolve_scope(who)
+    stmt = select(Issue)
+    if scope["reporter"]:
+        stmt = stmt.where(Issue.reporter_name == scope["reporter"])
+    if scope["statuses"]:
+        stmt = stmt.where(Issue.status.in_(scope["statuses"]))
+    issues = list(session.exec(stmt).all())
+
+    open_issues = [
+        i for i in issues if i.status.value not in config.OPEN_EXCLUDED_STATUSES
+    ]
+    by_severity: dict[str, int] = {}
+    by_status: dict[str, int] = {}
+    by_category: dict[str, int] = {}
+    for issue in open_issues:
+        key = issue.severity or "untriaged"
+        by_severity[key] = by_severity.get(key, 0) + 1
+        by_status[issue.status.value] = by_status.get(issue.status.value, 0) + 1
+        by_category[issue.category.value] = by_category.get(issue.category.value, 0) + 1
+
+    breached = [i for i in issues if _is_breached(i, now)]
+    buckets = {"0-7": 0, "8-14": 0, "15-30": 0, "30+": 0}
+    for issue in open_issues:
+        age = _age_days(issue, now)
+        if age is None:
+            continue
+        label = "0-7" if age <= 7 else "8-14" if age <= 14 else "15-30" if age <= 30 else "30+"
+        buckets[label] += 1
+
+    groups = {i.duplicate_group_id for i in issues if i.duplicate_group_id}
+    this_month = _month_metrics(issues, start, end)
+    prev_month = _month_metrics(issues, prev_start, prev_end)
+    delta = (
+        round(this_month["avg_mttr_days"] - prev_month["avg_mttr_days"], 2)
+        if this_month["avg_mttr_days"] is not None
+        and prev_month["avg_mttr_days"] is not None
+        else None
+    )
+
+    return {
+        "scope": {
+            "role": who["role"],
+            "user": who["user"],
+            "reporter": scope["reporter"],
+            "statuses": scope["statuses"],
+        },
+        "sla_breach_days": config.SLA_BREACH_DAYS,
+        "total_count": len(issues),
+        "open_count": len(open_issues),
+        "open_by_severity": by_severity,
+        "open_by_status": by_status,
+        "open_by_category": by_category,
+        "sla": {
+            "breached": len(breached),
+            "within": len(open_issues) - len(breached),
+            "breach_rate": (
+                round(len(breached) / len(open_issues), 3) if open_issues else None
+            ),
+        },
+        "age_buckets": buckets,
+        "duplicates": {
+            "groups": len(groups),
+            "grouped_issues": sum(1 for i in issues if i.duplicate_group_id),
+        },
+        "month": {
+            "key": month_key,
+            **this_month,
+            "prev_key": prev_key,
+            "prev_avg_mttr_days": prev_month["avg_mttr_days"],
+            "mttr_delta_days": delta,
+        },
+    }
 
 
 @app.get("/stats/load")

@@ -69,6 +69,11 @@ services:
   frontend:
     build: frontend
     ports: ["5173:5173"]
+    volumes:
+      # Bind-mount the source for live HMR; the anonymous volume keeps the
+      # image's node_modules from being shadowed by the host mount.
+      - ./frontend:/app
+      - /app/node_modules
     environment:
       VITE_GATEWAY_URL: http://localhost:8000
     depends_on: [gateway]
