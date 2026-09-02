@@ -172,6 +172,44 @@ def reset(session: Session, reference_nos: list[str]) -> int:
     return len(ids)
 
 
+def refloor(session: Session, mapped: list[tuple[dict, dict]]) -> int:
+    """Move already-imported issues onto a floor the mapping can now place.
+
+    The floor lives in two tables — `reporting.issues` owns it, `triage.issue_facts`
+    caches it for the analytics — and both must move together or the cards keep
+    reading the old grouping. Matched on `reference_no`, which is stable across
+    imports, so this is re-runnable and changes nothing on a second pass.
+
+    Only rows still sitting on the sentinel are touched: a floor that came off
+    the location path is what the source actually stated, and text recovery does
+    not get to overrule it. Everything else about the issue is left alone, which
+    is the point — a `--reset` re-import would take new issue ids with it and
+    orphan every triage result, recommendation and pattern scan behind them.
+    """
+    placed = {
+        fields["reference_no"]: fields["floor"]
+        for fields, provenance in mapped
+        if "floor_recovered_from_text" in provenance
+    }
+    if not placed:
+        return 0
+    rows = session.exec(
+        select(Issue.id, Issue.reference_no).where(
+            Issue.reference_no.in_(list(placed)),
+            Issue.floor == mapping.UNKNOWN_FLOOR,
+        )
+    ).all()
+    for issue_id, reference_no in rows:
+        floor = placed[reference_no]
+        for statement in (
+            text("UPDATE reporting.issues SET floor = :floor WHERE id = :id"),
+            text("UPDATE triage.issue_facts SET floor = :floor WHERE issue_id = :id"),
+        ):
+            session.exec(statement.bindparams(floor=floor, id=issue_id))
+    session.commit()
+    return len(rows)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--csv", help="path to the export (default: the CSV in raw_data/)")
@@ -186,6 +224,12 @@ def main() -> None:
         "--reset",
         action="store_true",
         help="delete previously imported rows (matched by reference_no) first",
+    )
+    parser.add_argument(
+        "--refloor",
+        action="store_true",
+        help="update the floor of already-imported rows the mapping now places, "
+             "and nothing else (see 'Recovering a floor' in the README)",
     )
     parser.add_argument("--batch-size", type=int, default=500)
     args = parser.parse_args()
@@ -212,6 +256,10 @@ def main() -> None:
     engine = create_engine(args.database_url, pool_pre_ping=True)
     with Session(engine) as session:
         check_tables(session)
+
+        if args.refloor:
+            print(f"\nrefloored {refloor(session, mapped)} issues")
+            return
 
         if args.reset:
             removed = reset(session, [f["reference_no"] for f, _ in mapped])

@@ -25,6 +25,30 @@ python scripts/import_defects.py --reset     # delete previous import, re-import
 Re-running without `--reset` is safe: rows already present (matched on
 `reference_no`) are skipped.
 
+## Recovering a floor
+
+248 rows have no floor segment in their location path and import on the
+`Unspecified` sentinel, which the insight rules refuse to treat as a location
+(`services/triage/app/insights.py`, `placed`). 158 of them name their level in
+the free text instead — "Annex Level 3 pole B17", "L24 FW", "DTTCC #01-01B" —
+and `defect_mapping.recover_floor` reads it back, in that building's own
+spelling (`07` for DTTA, `3` for BLK B, `L07` for MSCP).
+
+```bash
+python scripts/defect_mapping.py                 # self-check, no CSV, no DB
+python scripts/import_defects.py --refloor       # move already-imported rows
+```
+
+`--refloor` updates the floor on rows still sitting on the sentinel, in both
+`reporting.issues` and `triage.issue_facts`, and touches nothing else. Use it
+in preference to a `--reset` re-import when the database is already populated:
+a re-import takes new issue ids with it, orphaning every `triage.results` row,
+systemic-cluster recommendation and pattern scan built on the old ones. It is
+matched on `reference_no` and idempotent — a second run reports 0.
+
+Ambiguity stays unplaced by design, so 90 rows keep the sentinel: text naming
+two levels names neither, and a level the building has never had is a misread.
+
 The importer refuses to start against a database that is missing a table, or a
 column added after that database was created. `SQLModel.metadata.create_all`
 never ALTERs an existing table, so new columns ship as idempotent DDL in the
