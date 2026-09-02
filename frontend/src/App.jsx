@@ -6,9 +6,7 @@ import AiInsights from './pages/AiInsights'
 import Dashboard from './pages/Dashboard'
 import FixVerify from './pages/FixVerify'
 import IssueDetail from './pages/IssueDetail'
-import Notifications from './pages/Notifications'
 import ReportIssue from './pages/ReportIssue'
-import TriageBoard from './pages/TriageBoard'
 
 // Guards a route to a set of roles. Shell's sidebar already hides links a
 // role can't use, but that's cosmetic — this is what actually stops a direct
@@ -21,7 +19,7 @@ function RequireRole({ role, allowed, children }) {
 
 export default function App() {
   const [identity, setIdentityState] = useState(getIdentity())
-  const [badges, setBadges] = useState({ unread: 0, open: 0, insights: 0 })
+  const [badges, setBadges] = useState({ open: 0, insights: 0 })
 
   const changeIdentity = (user, role) => {
     setIdentity(user, role)
@@ -31,9 +29,6 @@ export default function App() {
   // Sidebar counts. Each is independent, so one dead service leaves the others
   // showing rather than blanking the whole nav.
   const refreshBadges = useCallback(() => {
-    api.unreadCount()
-      .then((r) => setBadges((b) => ({ ...b, unread: r.unread })))
-      .catch(() => {})
     api.statsDashboard()
       .then((s) => setBadges((b) => ({ ...b, open: s.open_count })))
       .catch(() => {})
@@ -75,14 +70,6 @@ export default function App() {
         />
         <Route path="/issues/:id" element={<IssueDetail />} />
         <Route
-          path="/triage"
-          element={
-            <RequireRole role={role} allowed={['admin']}>
-              <TriageBoard />
-            </RequireRole>
-          }
-        />
-        <Route
           path="/fix-verify"
           element={
             <RequireRole role={role} allowed={['maintenance', 'admin']}>
@@ -90,7 +77,6 @@ export default function App() {
             </RequireRole>
           }
         />
-        <Route path="/notifications" element={<Notifications />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>
