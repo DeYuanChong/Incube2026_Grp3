@@ -659,7 +659,9 @@ def insights(session: Session) -> list[dict]:
     # here is the length of that list (docs/05).
     by_id = {f.issue_id: f for f in ever_facts}
     for scan in session.exec(select(PatternScan)).all():
-        for n, pattern in enumerate(json.loads(scan.patterns or "[]")):
+        # Only the location's strongest few, or one exhaustively-partitioned
+        # floor outnumbers every other rule in the list (`rules.top_patterns`).
+        for n, pattern in rules.top_patterns(json.loads(scan.patterns or "[]")):
             score = rules.fault_pattern(pattern)
             if score is None:
                 continue

@@ -47,6 +47,7 @@ MIN_OVERHEAD_DAYS = 1.0   # sign-off lag long enough that someone would act on i
 REJECTION_RATE = 0.5
 MIN_PROOFS = 3
 PATTERN_MIN_MEMBERS = 3   # a fault pattern needs members, as a cluster does
+PATTERN_CARDS_PER_GROUP = 2  # ...and a location gets its strongest few, not its listing
 
 # What a caller should show. The rules return everything and rank it; the cut is
 # the reader's decision, not the rule's, so it lives at the edge (main.overview).
@@ -228,6 +229,28 @@ def scan_is_live(stored_patterns: list[dict], live_ids: set[str]) -> bool:
     )
 
 
+def top_patterns(stored: list[dict]) -> list[tuple[int, dict]]:
+    """The patterns from one location's scan that are worth cards, strongest first.
+
+    A scan partitions everything the location reported, so an exhaustive model
+    answers a floor with ten themes and that one floor then outnumbers every
+    other rule in the list — on the real snapshot, 42 scanned locations produced
+    113 of 135 cards. Every other rule emits at most one card per group; this
+    gets `PATTERN_CARDS_PER_GROUP` because a floor can plausibly have two real
+    faults, and the tail is a category listing, which is what `repeat` already
+    refuses to serve.
+
+    The index paired with each pattern is its position in the stored scan, not
+    its rank, so a card's id stays with its pattern as membership moves.
+    """
+    ranked = sorted(
+        enumerate(stored),
+        key=lambda pair: len(pair[1].get("issue_ids") or []),
+        reverse=True,
+    )
+    return ranked[:PATTERN_CARDS_PER_GROUP]
+
+
 def fault_pattern(pattern: dict) -> float | None:
     """A cross-category pattern worth a card.
 
@@ -363,6 +386,19 @@ if __name__ == "__main__":
     assert fault_pattern(got[0]) == 4 / 3
     assert fault_pattern({**got[0], "shared_root_cause": False}) is None
     assert fault_pattern({"issue_ids": ["i1", "i2"], "shared_root_cause": True}) is None
+
+    # a location's whole listing is not a finding: the strongest few get cards,
+    # and each keeps the stored index so its id does not move with its rank
+    listing = [{"name": f"p{n}", "issue_ids": ids} for n, ids in enumerate(
+        [["a", "b", "c"], ["d"] * 9, ["e"] * 4, ["f"] * 6])]
+    assert [n for n, _ in top_patterns(listing)] == [1, 3]
+    assert top_patterns(listing[:1]) == [(0, listing[0])]
+    assert top_patterns([]) == []
+    # ties keep the stored order, so equal patterns do not swap between requests
+    tied = [{"name": "x", "issue_ids": ["a", "b", "c"]},
+            {"name": "y", "issue_ids": ["d", "e", "f"]},
+            {"name": "z", "issue_ids": ["g", "h", "i"]}]
+    assert [n for n, _ in top_patterns(tied)] == [0, 1]
 
     # a scan whose members no longer exist is stale however recently it ran
     live = {"i1", "i2", "i3"}
