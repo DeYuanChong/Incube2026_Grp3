@@ -569,7 +569,9 @@ def insights(session: Session) -> list[dict]:
         if score is not None:
             out.append(_insight(
                 id=f"mttr:{row['group']}",
-                kind="predictive",
+                # A measured average against a median predicts nothing; it is a
+                # lever (access, parts, assignment), which is what pre-emptive means.
+                kind="pre-emptive",
                 source="mttr",
                 score=score,
                 title=f"Repairs at {where} take longer than elsewhere",
