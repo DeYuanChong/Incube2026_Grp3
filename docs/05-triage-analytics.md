@@ -47,8 +47,7 @@ something an admin can act on and then check:
 | `active` | whether it still clears the threshold today (systemic cards only; the rest are always live) |
 | `title`, `body`, `action` | the finding, the numbers behind it, and what to do |
 | `evidence` | three `{label, value}` pairs — the figures that tripped the rule |
-| `filter` | how to find these issues in the defect list, stated by the side that knows the group |
-| `linked`, `linked_count` | the issues themselves, so the number is falsifiable |
+| `linked`, `linked_count` | the issues themselves, so the number is falsifiable — and what the card's defect-list link is built from |
 
 `action` on a systemic card is the LLM's recommendation, written once at
 detection time; on every other card it is fixed prose, because a threshold has
@@ -179,10 +178,13 @@ than an insight rule.
   either. A card carries counts, rates and windows that a reader can follow back
   to `linked[]` — the same argument as returning a cluster's evidence rather
   than only its sentence.
-- **`filter` says how to find the card's issues** (`{search, category}`), stated
-  server-side because this is the side that knows the group: a systemic card's
-  `id` is a cluster UUID, and `cluster_key` is not safely parseable back into
-  fields.
+- **A card names its issues; it does not describe where to look for them.**
+  `linked[]` carries the ids, and the "See N defects" link passes them to
+  `GET /issues?id=…`. The card used to state a `{search, category}` filter that
+  the client re-ran against the defect list instead — a different set for every
+  card kind, since a fault pattern is a subset of a floor and every windowed
+  card is a subset of all time. The number on the button and the rows behind it
+  now come from one list.
 
 ### Where the pieces live
 

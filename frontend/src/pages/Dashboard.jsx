@@ -61,8 +61,12 @@ export default function Dashboard({ identity }) {
   const [stats, setStats] = useState(null)
   const [issuesError, setIssuesError] = useState(null)
   const [statsError, setStatsError] = useState(null)
+  // An insight card deep-links in with ?id=…&id=… — the issues it counted,
+  // named outright. They are fetched by id rather than filtered out of the
+  // newest page, because a card's evidence is mostly closed and mostly older
+  // than the `ROW_LIMIT` window that page covers.
+  const [ids, setIds] = useState(() => searchParams.getAll('id'))
   const [filters, setFilters] = useState(() => {
-    // AI insights deep-links in with ?open=1&category=lighting&q=Block A / L3
     const status = searchParams.get('status')
     return {
       ...EMPTY_FILTERS,
@@ -81,13 +85,17 @@ export default function Dashboard({ identity }) {
     setStatsError(null)
     // Role scoping is resolved server-side from X-Role/X-User, so this asks for
     // everything the caller is allowed to see and nothing more.
-    api.listIssues({ limit: ROW_LIMIT })
+    // ponytail: an id list longer than ROW_LIMIT is clamped, not paged — the
+    // count in the table head still tells the truth. Page it when a card links
+    // more than 500 issues.
+    api.listIssues(ids.length ? { id: ids, limit: Math.min(ids.length, ROW_LIMIT) }
+                              : { limit: ROW_LIMIT })
       .then(setIssues)
       .catch((err) => { setIssues([]); setIssuesError(err) })
     api.statsDashboard()
       .then(setStats)
       .catch((err) => { setStats(null); setStatsError(err) })
-  }, [identity.user, identity.role])
+  }, [identity.user, identity.role, ids])
 
   useEffect(load, [load])
 
@@ -97,7 +105,9 @@ export default function Dashboard({ identity }) {
   }, [searchParams, setSearchParams])
 
   const set = (patch) => setFilters((prev) => ({ ...prev, ...patch }))
-  const clear = () => { setFilters(EMPTY_FILTERS); setQ('') }
+  // Clearing drops the insight's id list too, or the table stays pinned to one
+  // card's issues with every chip reading "All" and no visible cause.
+  const clear = () => { setFilters(EMPTY_FILTERS); setQ(''); if (ids.length) setIds([]) }
 
   const rows = useMemo(() => {
     if (!issues) return []
@@ -263,7 +273,9 @@ export default function Dashboard({ identity }) {
           </div>
           <div style={{ fontSize: 13, color: 'var(--muted)' }}>
             <span style={{ fontWeight: 600, color: 'var(--text)' }}>{rows.length}</span>
-            {issues && issues.length >= ROW_LIMIT ? ` of the newest ${ROW_LIMIT}` : ''}
+            {ids.length
+              ? ` of ${ids.length} from one insight`
+              : issues && issues.length >= ROW_LIMIT ? ` of the newest ${ROW_LIMIT}` : ''}
             {rows.length === 1 ? ' defect matches' : ' defects match'}
           </div>
         </div>
