@@ -43,6 +43,12 @@ export default function ReportIssue() {
   const [descTouched, setDescTouched] = useState(false)
   // { description, suggestedTitle } — either half independently nullable/actionable.
   const [descSuggestion, setDescSuggestion] = useState(null)
+  // "where"/"when" the reporter hasn't mentioned yet, from the same call as descSuggestion.
+  const [descMissingDetails, setDescMissingDetails] = useState([])
+  // Drives the AI-activity indicator next to the description label: true while
+  // the autocomplete call is in flight, or a photo pre-check is (photoCheckCount > 0).
+  const [descChecking, setDescChecking] = useState(false)
+  const [photoCheckCount, setPhotoCheckCount] = useState(0)
   // Set by accepting a suggested title (from either source below) so a
   // freeform AI title isn't silently overridden by the fixed chip labels —
   // see buildTitleAndDescription().
@@ -67,8 +73,10 @@ export default function ReportIssue() {
   useEffect(() => {
     if (!descTouched) return
     setDescSuggestion(null)
+    setDescMissingDetails([])
     const requestId = ++suggestionRequestId.current
     const timer = setTimeout(() => {
+      setDescChecking(true)
       api
         .suggestDescription({
           title: currentTitle(),
@@ -83,8 +91,10 @@ export default function ReportIssue() {
           if (suggestedDescription || suggestedTitle) {
             setDescSuggestion({ description: suggestedDescription, suggestedTitle })
           }
+          setDescMissingDetails(res.missing_details || [])
         })
         .catch(() => {})
+        .finally(() => setDescChecking(false))
     }, 2000)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -129,6 +139,7 @@ export default function ReportIssue() {
       const key = photoKey(file)
       if (checkedPhotoKeys.current.has(key)) continue
       checkedPhotoKeys.current.add(key)
+      setPhotoCheckCount((n) => n + 1)
       api
         .previewPhotoCheck(file, { category, title: currentTitle(), description })
         .then((res) => {
@@ -141,6 +152,7 @@ export default function ReportIssue() {
           })
         })
         .catch(() => {})
+        .finally(() => setPhotoCheckCount((n) => n - 1))
     }
   }
   const removePhoto = (i) => setPhotos(photos.filter((_, idx) => idx !== i))
@@ -226,7 +238,7 @@ export default function ReportIssue() {
             Based on your description this looks like{' '}
             <strong>{created.ai_suggested_category.replace('_', ' ')}</strong> rather than{' '}
             <strong>{created.category.replace('_', ' ')}</strong>.{' '}
-            <button onClick={acceptCategory}>Recategorize</button>{' '}
+            <button className="gradient" onClick={acceptCategory}>Recategorize</button>{' '}
             <button className="secondary" onClick={() => setCreated({ ...created, ai_suggested_category: null })}>
               Keep my category
             </button>
@@ -235,7 +247,7 @@ export default function ReportIssue() {
         {created.ai_suggested_title && (
           <div className="suggestion">
             Your photo suggests a different title: <strong>{created.ai_suggested_title}</strong>.{' '}
-            <button onClick={acceptTitle}>Use this title</button>{' '}
+            <button className="gradient" onClick={acceptTitle}>Use this title</button>{' '}
             <button className="secondary" onClick={() => setCreated({ ...created, ai_suggested_title: null })}>
               Keep mine
             </button>
@@ -244,7 +256,7 @@ export default function ReportIssue() {
         {created.ai_suggested_description && (
           <div className="suggestion">
             Your photo suggests a different description: <em>{created.ai_suggested_description}</em>{' '}
-            <button onClick={acceptDescription}>Use this description</button>{' '}
+            <button className="gradient" onClick={acceptDescription}>Use this description</button>{' '}
             <button className="secondary" onClick={() => setCreated({ ...created, ai_suggested_description: null })}>
               Keep mine
             </button>
@@ -325,16 +337,31 @@ export default function ReportIssue() {
                     onClick={() => pickIssueType(t)}>{t}</button>
           ))}
         </div>
-        <label>Describe more (optional)</label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          Describe more (optional)
+          {(descChecking || photoCheckCount > 0) && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }} title="AI is checking…">
+              <span className="ai-dot" />
+              <span className="ai-text" style={{ fontSize: 11 }}>Checking…</span>
+            </span>
+          )}
+        </label>
         <textarea rows={4} value={description}
                   onChange={(e) => { setDescription(e.target.value); setDescTouched(true) }}
                   placeholder="Help us find it, or tell us more." />
+        {descMissingDetails.length > 0 && (
+          <p className="hint">
+            Tip: mention {descMissingDetails.includes('where') && 'where exactly'}
+            {descMissingDetails.length === 2 && ' and '}
+            {descMissingDetails.includes('when') && 'when it started'} for a faster fix.
+          </p>
+        )}
         {descSuggestion && (descSuggestion.description || descSuggestion.suggestedTitle) && (
           <div className="suggestion">
             {descSuggestion.description && (
               <p>
                 AI suggestion: <em>{descSuggestion.description}</em>{' '}
-                <button type="button" onClick={acceptSuggestedDraft}>Use this</button>{' '}
+                <button type="button" className="gradient" onClick={acceptSuggestedDraft}>Use this</button>{' '}
                 <button type="button" className="secondary" onClick={dismissSuggestedDraft}>Dismiss</button>
               </p>
             )}
@@ -342,7 +369,7 @@ export default function ReportIssue() {
               <p>
                 Based on what you typed, this might really be:{' '}
                 <strong>{descSuggestion.suggestedTitle}</strong>{' '}
-                <button type="button" onClick={acceptDescSuggestedTitle}>Update title</button>{' '}
+                <button type="button" className="gradient" onClick={acceptDescSuggestedTitle}>Update title</button>{' '}
                 <button type="button" className="secondary" onClick={dismissDescSuggestedTitle}>Dismiss</button>
               </p>
             )}
@@ -354,31 +381,37 @@ export default function ReportIssue() {
             {photoSuggestion.title && (
               <p>
                 Suggested title: <strong>{photoSuggestion.title}</strong>{' '}
-                <button type="button" onClick={acceptPhotoTitle}>Use this title</button>{' '}
+                <button type="button" className="gradient" onClick={acceptPhotoTitle}>Use this title</button>{' '}
                 <button type="button" className="secondary" onClick={dismissPhotoTitle}>Dismiss</button>
               </p>
             )}
             {photoSuggestion.description && (
               <p>
                 Suggested description: <em>{photoSuggestion.description}</em>{' '}
-                <button type="button" onClick={acceptPhotoDescription}>Use this description</button>{' '}
+                <button type="button" className="gradient" onClick={acceptPhotoDescription}>Use this description</button>{' '}
                 <button type="button" className="secondary" onClick={dismissPhotoDescription}>Dismiss</button>
               </p>
             )}
           </div>
         )}
         <label>Photo (optional)</label>
-        <input type="file" multiple accept="image/*" capture="environment" onChange={onPickPhotos} />
-        {photos.length > 0 && (
-          <div className="photo-preview-row">
-            {photos.map((file, i) => (
-              <div key={i} className="photo-preview">
-                <img src={URL.createObjectURL(file)} alt="" />
-                <button type="button" className="secondary" onClick={() => removePhoto(i)}>✕</button>
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="photo-preview-row">
+          {photos.map((file, i) => (
+            <div key={i} className="photo-preview">
+              <img src={URL.createObjectURL(file)} alt="" />
+              <button type="button" onClick={() => removePhoto(i)}>×</button>
+            </div>
+          ))}
+          <label className="photo-add-tile">
+            <input type="file" multiple accept="image/*" capture="environment" onChange={onPickPhotos} />
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1B65F8" strokeWidth="1.7" strokeLinecap="round">
+              <path d="M3.5 8.5h3.2l1.4-2.2h7.8l1.4 2.2h3.2v10h-17z" />
+              <circle cx="12" cy="13.2" r="3.2" />
+            </svg>
+            <span>Add photo</span>
+          </label>
+        </div>
+        <div className="hint" style={{ marginTop: 8 }}>A photo helps us verify the issue faster.</div>
         <label className="ack-row" style={{ marginTop: 12 }}>
           <input type="checkbox" style={{ width: 'auto', margin: 0 }} checked={ack}
                  onChange={(e) => setAck(e.target.checked)} />

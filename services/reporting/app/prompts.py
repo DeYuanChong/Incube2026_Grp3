@@ -59,8 +59,20 @@ summarizes the defect. Only propose a replacement if their words describe a
 clearly different problem than the title says — not just extra detail on the
 same problem. Keep it short (under 10 words). Otherwise return null.
 
+Task 3 — missing details: the building/floor are already captured elsewhere
+(shown above as Location), so don't ask for those. Only using what the
+reporter has typed so far (skip this task entirely if they haven't typed
+anything yet — return an empty list), check for two things separately:
+"where" — a specific spot within that location (e.g. "near the entrance",
+"above desk 12", "the ceiling", "the second stall") — and "when" — a time
+reference for the defect (e.g. "since this morning", "for the past 3 days",
+"just noticed it", "every time it rains"). Return a list containing "where"
+and/or "when" for whichever is genuinely absent from their text; omit
+whichever is already there.
+
 Respond with strict JSON only:
 {{"description": "<1-2 sentence description, or empty string>", "confidence": <0.0-1.0>,
 "suggested_title": "<a corrected short title, or null>",
-"title_confidence": <0.0-1.0, or null>}}
+"title_confidence": <0.0-1.0, or null>,
+"missing_details": ["where", "when"]}}
 """
