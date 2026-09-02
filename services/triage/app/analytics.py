@@ -13,6 +13,7 @@ from sqlalchemy import func, text
 from sqlmodel import Session, select
 
 from . import config, grouping
+from . import insights as rules
 from .models import IssueFact, SystemicCluster
 
 GROUP_KEYS = {
@@ -208,6 +209,10 @@ def profiles(session: Session, by: str = "location") -> list[dict]:
                 if prior else None
             ),
             "repeat_rate": _repeat_rate(recent),
+            # How many categories the window actually held. One means repeat_rate
+            # is arithmetic rather than a finding — every issue after the first is
+            # a "repeat" because there is nothing else it could be.
+            "distinct_categories": len({f.category for f in recent}),
         })
     return sorted(out, key=lambda r: r["total"], reverse=True)
 
@@ -263,16 +268,10 @@ def systemic_clusters(session: Session) -> list[dict]:
 
 
 # --- Insight assembly -------------------------------------------------------
-# Thresholds that turn an aggregate into something worth putting in front of an
-# admin. Kept here beside the aggregates they read, and deliberately blunt: the
-# card carries its own evidence, so a reader can disagree with the threshold.
-INSIGHT_TREND_PCT = 50.0        # a window at least half again as busy as the last
-INSIGHT_MIN_RECENT = 3          # ...on more than a couple of issues
-INSIGHT_MTBF_DAYS = 60.0        # the mock's "below 60d — root-cause flag"
-INSIGHT_MIN_GROUP_ISSUES = 3
-INSIGHT_REPEAT_RATE = 0.5       # over half the window is the same thing again
-INSIGHT_REJECTION_RATE = 0.5
-INSIGHT_MIN_PROOFS = 3
+# Cards for the admin. The thresholds, the silence guards and the ranking live
+# in `insights.py` — dependency-free and self-checked with `python3 insights.py`
+# — because that is the part with the edge cases. This side owns the database,
+# the prose and the evidence links.
 
 
 def _linked_summary(fact: IssueFact) -> dict:
@@ -290,20 +289,23 @@ def _linked_summary(fact: IssueFact) -> dict:
 
 
 def _insight(
-    *, id: str, kind: str, source: str, title: str, body: str, action: str,
-    window_days: int, evidence: list[dict], linked: list[IssueFact],
+    *, id: str, kind: str, source: str, score: float, title: str, body: str,
+    action: str, window_days: int, evidence: list[dict], linked: list[IssueFact],
     active: bool = True, filter: dict | None = None,
 ) -> dict:
-    """`filter` is how to find this finding's issues in the defect list.
+    """`score` is how far past its own threshold this finding sits, and is what
+    the list is ranked on (`insights.py`).
 
-    Stated here because this is the side that knows the group. Leaving the
-    client to reconstruct it from `id` means parsing a cluster UUID back into a
-    location, which cannot work.
+    `filter` is how to find this finding's issues in the defect list. Stated here
+    because this is the side that knows the group — leaving the client to
+    reconstruct it from `id` means parsing a cluster UUID back into a location,
+    which cannot work.
     """
     return {
         "id": id,
         "kind": kind,
         "source": source,
+        "score": round(score, 2),
         "active": active,
         "title": title,
         "body": body,
@@ -312,12 +314,15 @@ def _insight(
         "evidence": evidence,
         "filter": filter,
         "linked_count": len(linked),
+        # ponytail: uncapped, as systemic_payload.issues is. The list *is* the
+        # count, so a cap needs a truncation flag; paginate when a card links
+        # enough issues for the response size to be noticed.
         "linked": [_linked_summary(f) for f in linked],
     }
 
 
 def insights(session: Session) -> list[dict]:
-    """Recommendation cards assembled from the aggregates above.
+    """Recommendation cards assembled from the aggregates above, worst first.
 
     Every field is derived from stored data or an LLM recommendation that was
     already written at detection time. Nothing here invents a confidence score
@@ -343,11 +348,12 @@ def insights(session: Session) -> list[dict]:
 
     # 1. Systemic clusters — the finding that already carries a recommendation.
     for cluster in systemic_clusters(session):
+        score = rules.systemic(cluster, config.SYSTEMIC_MIN_COUNT)
+        if score is None:
+            continue
         linked = sorted(
             members.get(cluster["cluster_key"], []), key=lambda f: f.created_at
         )
-        if not cluster["recommendation"]:
-            continue  # flagged, but the LLM call has not landed — nothing to escalate
         named = ever.get(cluster["cluster_key"], [])
         sample = named[0] if named else None
         # With no fact left to read the parts off (the snapshot was rebuilt),
@@ -363,6 +369,7 @@ def insights(session: Session) -> list[dict]:
             id=f"systemic:{cluster['id']}",
             kind="systemic",
             source="systemic_cluster",
+            score=score,
             active=cluster["active"],
             title=f"{what or 'Repeat'} faults keep recurring at {where}".strip(),
             body=(
@@ -397,17 +404,16 @@ def insights(session: Session) -> list[dict]:
         )
         sample = recent[0] if recent else None
         where = f"{sample.building} / {sample.floor}" if sample else profile["group"]
+        where_filter = {"search": where, "category": None} if sample else None
 
         # 2. Getting worse: this window against the one before it.
-        if (
-            profile["trend_pct"] is not None
-            and profile["trend_pct"] >= INSIGHT_TREND_PCT
-            and profile["recent"] >= INSIGHT_MIN_RECENT
-        ):
+        score = rules.trend(profile)
+        if score is not None:
             out.append(_insight(
                 id=f"trend:{profile['group']}",
                 kind="predictive",
                 source="profile_trend",
+                score=score,
                 title=f"Defect volume at {where} is climbing",
                 body=(
                     f"{profile['recent']} issues in the last {profile['window_days']} days "
@@ -419,7 +425,7 @@ def insights(session: Session) -> list[dict]:
                     "more reactive callouts here; the linked issues show the mix."
                 ),
                 window_days=profile["window_days"],
-                filter={"search": where, "category": None} if sample else None,
+                filter=where_filter,
                 evidence=[
                     {"label": "This window", "value": profile["recent"]},
                     {"label": "Previous", "value": profile["prior"]},
@@ -428,47 +434,70 @@ def insights(session: Session) -> list[dict]:
                 linked=recent,
             ))
 
-        # 3. Same thing again: repeats within the window. Only meaningful for a
-        # location — for by=category the group *is* one category, so every issue
-        # after the first counts and the rate is degenerate (docs/05).
-        if (
-            profile["repeat_rate"] is not None
-            and profile["repeat_rate"] >= INSIGHT_REPEAT_RATE
-            and profile["recent"] >= INSIGHT_MIN_RECENT
-        ):
+        # 3. Same thing again: repeats within the window.
+        score = rules.repeat(profile, "floor")
+        if score is not None:
             out.append(_insight(
                 id=f"repeat:{profile['group']}",
                 kind="pre-emptive",
                 source="profile_repeat",
+                score=score,
                 title=f"Repeat reports of the same categories at {where}",
                 body=(
                     f"{int(profile['repeat_rate'] * 100)}% of the last "
                     f"{profile['recent']} issues here were not the first of their "
-                    "category — the same kinds of fault keep coming back."
+                    f"category, across {profile['distinct_categories']} categories — "
+                    "the same kinds of fault keep coming back."
                 ),
                 action=(
                     "Treat these as one standing fault rather than separate "
                     "tickets, and hold sign-off until a post-fix check passes."
                 ),
                 window_days=profile["window_days"],
-                filter={"search": where, "category": None} if sample else None,
+                filter=where_filter,
                 evidence=[
                     {"label": "Repeat rate", "value": f"{int(profile['repeat_rate'] * 100)}%"},
                     {"label": "Issues", "value": profile["recent"]},
+                    {"label": "Categories", "value": profile["distinct_categories"]},
+                ],
+                linked=recent,
+            ))
+
+        # 4. One defect, several tickets.
+        score = rules.duplicates(profile)
+        if score is not None:
+            out.append(_insight(
+                id=f"duplicate:{profile['group']}",
+                kind="pre-emptive",
+                source="profile_duplicate",
+                score=score,
+                title=f"Several reporters are filing the same defects at {where}",
+                body=(
+                    f"{int(profile['duplicate_rate'] * 100)}% of the {profile['total']} "
+                    "issues here arrived as a duplicate of an earlier report — one "
+                    "defect is opening several tickets."
+                ),
+                action=(
+                    "Show reporters the open tickets for a location before they file. "
+                    "Dispatch is already gated, so the cost here is triage time, not "
+                    "duplicated callouts."
+                ),
+                window_days=profile["window_days"],
+                filter=where_filter,
+                evidence=[
+                    {"label": "Duplicate rate", "value": f"{int(profile['duplicate_rate'] * 100)}%"},
+                    {"label": "Issues", "value": profile["total"]},
                     {"label": "Open", "value": profile["open"]},
                 ],
                 linked=recent,
             ))
 
-    # 4. Assets failing faster than they should.
+    # 5. Assets failing faster than they should.
     equipment_groups = _grouped(session, "equipment")
     repair = {row["group"]: row for row in mttr(session, "equipment")}
     for row in mtbf(session, "equipment"):
-        if (
-            row["group"] == "(unspecified)"
-            or row["mtbf_days"] >= INSIGHT_MTBF_DAYS
-            or row["issue_count"] < INSIGHT_MIN_GROUP_ISSUES
-        ):
+        score = rules.asset_mtbf(row)
+        if score is None:
             continue
         linked = sorted(equipment_groups.get(row["group"], []), key=lambda f: f.created_at)
         mttr_days = (repair.get(row["group"]) or {}).get("mttr_days")
@@ -476,6 +505,7 @@ def insights(session: Session) -> list[dict]:
             id=f"mtbf:{row['group']}",
             kind="pre-emptive",
             source="mtbf",
+            score=score,
             title=(
                 f"{row['group']} is failing every {row['mtbf_days']:.0f} "
                 f"{'day' if round(row['mtbf_days']) == 1 else 'days'}"
@@ -483,7 +513,7 @@ def insights(session: Session) -> list[dict]:
             body=(
                 f"{row['issue_count']} failures recorded, averaging "
                 f"{row['mtbf_days']} days between them — under the "
-                f"{INSIGHT_MTBF_DAYS:.0f}-day mark where repeat repair usually "
+                f"{rules.MTBF_DAYS:.0f}-day mark where repeat repair usually "
                 "costs more than replacement."
             ),
             action=(
@@ -500,18 +530,80 @@ def insights(session: Session) -> list[dict]:
             linked=linked,
         ))
 
-    # 5. Proof quality: work coming back rejected wastes a second dispatch.
+    # 6/7. Where the time goes: the repair itself, or the sign-off after it.
+    location_mttr = mttr(session, "floor")
+    baseline = rules.repair_baseline(location_mttr)
+    for row in location_mttr:
+        facts = location_groups.get(row["group"], [])
+        # The evidence for a repair timing is the repairs, not every ticket.
+        repaired = sorted((f for f in facts if f.fixed_at), key=lambda f: f.created_at)
+        sample = repaired[0] if repaired else None
+        where = f"{sample.building} / {sample.floor}" if sample else row["group"]
+        where_filter = {"search": where, "category": None} if sample else None
+
+        score = rules.slow_repair(row, baseline)
+        if score is not None:
+            out.append(_insight(
+                id=f"mttr:{row['group']}",
+                kind="predictive",
+                source="mttr",
+                score=score,
+                title=f"Repairs at {where} take longer than elsewhere",
+                body=(
+                    f"{row['mttr_days']} days on average across {row['repaired_count']} "
+                    f"repairs, against a {baseline} day median across locations."
+                ),
+                action=(
+                    "Check access, parts lead time and who is assigned here before "
+                    "adding capacity — the delay may not be the repair itself."
+                ),
+                window_days=window,
+                filter=where_filter,
+                evidence=[
+                    {"label": "MTTR", "value": f"{row['mttr_days']}d"},
+                    {"label": "Median", "value": f"{baseline}d"},
+                    {"label": "Repairs", "value": row["repaired_count"]},
+                ],
+                linked=repaired,
+            ))
+
+        score = rules.verification(row)
+        if score is not None:
+            out.append(_insight(
+                id=f"verification:{row['group']}",
+                kind="pre-emptive",
+                source="mttr",
+                score=score,
+                title=f"Finished repairs at {where} are waiting on sign-off",
+                body=(
+                    f"A completed repair waits {row['verification_overhead_days']} days on "
+                    f"proof and sign-off, longer than the {row['mttr_days']} days the repair "
+                    f"itself took, across {row['repaired_count']} repairs."
+                ),
+                action=(
+                    "Chase verification rather than the repair queue: the work is "
+                    "already done while the ticket is still counted as open."
+                ),
+                window_days=window,
+                filter=where_filter,
+                evidence=[
+                    {"label": "Sign-off", "value": f"{row['verification_overhead_days']}d"},
+                    {"label": "Repair", "value": f"{row['mttr_days']}d"},
+                    {"label": "Repairs", "value": row["repaired_count"]},
+                ],
+                linked=repaired,
+            ))
+
+    # 8. Proof quality: work coming back rejected wastes a second dispatch.
     for row in vendor_performance(session):
-        if (
-            row["proof_rejection_rate"] is None
-            or row["proof_rejection_rate"] < INSIGHT_REJECTION_RATE
-            or row["proofs"] < INSIGHT_MIN_PROOFS
-        ):
+        score = rules.proof_quality(row)
+        if score is None:
             continue
         out.append(_insight(
             id=f"vendor:{row['assignee']}",
             kind="pre-emptive",
             source="vendor_performance",
+            score=score,
             title=f"{row['assignee']}'s proofs are mostly being rejected",
             body=(
                 f"{int(row['proof_rejection_rate'] * 100)}% of {row['proofs']} "
@@ -534,5 +626,6 @@ def insights(session: Session) -> list[dict]:
             linked=[],
         ))
 
-    # Live findings first, then the biggest bodies of evidence.
-    return sorted(out, key=lambda i: (i["active"], i["linked_count"]), reverse=True)
+    # Worst first. Stable, so equal scores keep the order the rules ran in:
+    # root causes, then places, then assets, then timings, then who did the work.
+    return sorted(out, key=lambda i: i["score"], reverse=True)
