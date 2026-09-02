@@ -5,7 +5,7 @@ Imports the ITeFM defect export (`raw_data/*.csv`, 2,182 rows covering
 
 | File | Role |
 |---|---|
-| `defect_mapping.py` | Pure CSV → app-model mapping. No DB. Run directly for a mapping-only dry run. |
+| `defect_mapping.py` | Pure CSV → app-model mapping. No DB. Run with a CSV for a mapping-only dry run, with no argument for its self-check. |
 | `import_defects.py` | Reads the CSV, applies the mapping, writes the database. |
 | `check_card_links.py` | End-to-end check that each insight card's "See N defects" link returns exactly those N. Needs the stack up. |
 
@@ -24,6 +24,30 @@ python scripts/import_defects.py --reset     # delete previous import, re-import
 
 Re-running without `--reset` is safe: rows already present (matched on
 `reference_no`) are skipped.
+
+## Recovering a floor
+
+248 rows have no floor segment in their location path and import on the
+`Unspecified` sentinel, which the insight rules refuse to treat as a location
+(`services/triage/app/insights.py`, `placed`). 158 of them name their level in
+the free text instead — "Annex Level 3 pole B17", "L24 FW", "DTTCC #01-01B" —
+and `defect_mapping.recover_floor` reads it back, in that building's own
+spelling (`07` for DTTA, `3` for BLK B, `L07` for MSCP).
+
+```bash
+python scripts/defect_mapping.py                 # self-check, no CSV, no DB
+python scripts/import_defects.py --refloor       # move already-imported rows
+```
+
+`--refloor` updates the floor on rows still sitting on the sentinel, in both
+`reporting.issues` and `triage.issue_facts`, and touches nothing else. Use it
+in preference to a `--reset` re-import when the database is already populated:
+a re-import takes new issue ids with it, orphaning every `triage.results` row,
+systemic-cluster recommendation and pattern scan built on the old ones. It is
+matched on `reference_no` and idempotent — a second run reports 0.
+
+Ambiguity stays unplaced by design, so 90 rows keep the sentinel: text naming
+two levels names neither, and a level the building has never had is a misread.
 
 The importer refuses to start against a database that is missing a table, or a
 column added after that database was created. `SQLModel.metadata.create_all`
@@ -103,3 +127,108 @@ is the last `SYSTEMIC_WINDOW_DAYS` from *now*, so it would only ever see the
 most recent 90 days. `vendor_performance()` needs `fixverify.work_orders`, which
 this export has no equivalent for; it already returns `[]` when that table is
 empty.
+
+# Triage backfill
+
+`backfill_triage.py` runs the pipeline over the imported facts — the step the
+import deliberately skips. Without it `triage.results` is empty, so there are no
+severity suggestions, no duplicate links, no systemic clusters, and the AI
+Insights systemic panel shows nothing.
+
+Each issue is replayed **as of its own `created_at`**: `pipeline.triage_fact`
+takes an `as_of` that ends the 14-day duplicate window and the 90-day systemic
+window at the issue instead of at wall-clock now. That is what the "Not
+imported" note above is about — anchored, the clustering sees all 14 months
+rather than the most recent 90 days.
+
+Run it **from the host, not inside the triage container**. `docker compose exec`
+runs as a child of the container: a `docker compose up` on any other terminal
+recreates that container mid-run and takes the process, the copied script and
+the log with it. That is not hypothetical — it killed a run at 42%.
+
+```bash
+pip install "sqlmodel>=0.0.22" "psycopg[binary]>=3.2" python-dotenv httpx openai
+
+set -a; . ./.env; set +a
+export DATABASE_URL=postgresql+psycopg://app:app@localhost:5432/defects
+export PYTHONPATH=services/triage
+
+python scripts/backfill_triage.py --dry-run          # counts, no model calls
+python scripts/backfill_triage.py --limit 20         # smoke test
+nohup python scripts/backfill_triage.py --every 100 > backfill.log 2>&1 &
+```
+
+Roughly 4,800 model calls, ~$0.20 on `google/gemini-2.5-flash-lite`, 1-2 hours
+at 3-5s per issue. Sequential by design: clusters must accrue members in arrival
+order, and the duplicate group of the second report needs the first already
+stored. Re-running resumes — issues that already have a result row are skipped.
+Reporting is not written to unless `--write-back` is passed; these are closed
+issues whose severity is already history there.
+
+**One run at a time.** A second start refuses on a Postgres advisory lock, and
+it has to: `triage.results` has no unique constraint on `issue_id`, so two
+runners each snapshot the pending list and both store their answers. That
+produced 235 duplicate rows before the lock existed, visible only as a row count
+above the issue count:
+
+```sql
+select count(*), count(distinct issue_id) from triage.results;  -- must be equal
+```
+
+**A dropped connection is not a failure.** `ai_client` degrades to a rule-based
+fallback rather than raising (docs/04), so a lost model call still returns
+`medium / routine / "Default (AI unavailable)"` and the pipeline stores it — a
+row that looks triaged, so the next resume skips it forever. The runner raises
+`max_retries` for its own process and deletes any fallback row it wrote, leaving
+the issue pending instead. To confirm a finished run kept nothing degraded:
+
+```sql
+select count(*) from triage.results
+ where severity_rationale like 'Default (AI unavailable)%';  -- must be 0
+```
+
+## Porting the results to another machine
+
+The backfill is the only expensive thing in this repo — everything else can be
+re-run for free. Move it rather than paying for it twice.
+
+**Whole database (simplest, and what to use when the target is a fresh clone):**
+
+```bash
+# source machine
+docker compose exec -T postgres pg_dump -U app -Fc defects > defects.dump
+
+# target machine, after `docker compose up -d --build` has created the schema
+docker compose exec -T postgres pg_restore -U app -d defects --clean --if-exists \
+  < defects.dump
+```
+
+No import step needed on the target — the dump carries `reporting.*` and
+`triage.*` together, so the target does not need `raw_data/` or the CSV.
+
+**Triage outputs only (when the target already has its own imported data):**
+
+```bash
+# source machine — the four tables holding LLM output
+docker compose exec -T postgres pg_dump -U app -d defects --data-only \
+  -t triage.results -t triage.systemic_clusters \
+  -t triage.insight_actions -t triage.pattern_scans > triage_ai.sql
+
+# target machine
+docker compose exec -T postgres psql -U app -d defects -c \
+  'TRUNCATE triage.results, triage.systemic_clusters,
+            triage.insight_actions, triage.pattern_scans'
+docker compose exec -T postgres psql -U app -d defects < triage_ai.sql
+# the facts carry a copy of the duplicate link, and it is not in those tables
+docker compose exec -T postgres psql -U app -d defects -c \
+  'UPDATE triage.issue_facts f SET duplicate_group_id = r.duplicate_of_issue_id
+     FROM triage.results r WHERE r.issue_id = f.issue_id'
+```
+
+That last UPDATE is not optional: `profiles()` counts `duplicate_rate` off
+`issue_facts.duplicate_group_id`, which `triage_fact` mirrors as it goes. Skip
+it and the duplicate insight cards go quiet on the target.
+
+Both routes assume the same issue ids on both machines. Re-running
+`import_defects.py --reset` on the target mints new ids and orphans every row
+you just copied — restore the dump instead of re-importing.

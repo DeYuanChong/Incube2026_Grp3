@@ -88,9 +88,19 @@ not a tuned threshold:
   groups with a single repair each pull the median to 0.17 days, after which
   every group with real volume reads as slow.
 
-`mtbf` carries a fourth: `(unspecified)` is skipped, because it is every issue
-with no equipment extracted and its MTBF is the site's arrival rate wearing an
-asset's name.
+A fourth guard covers **every group whose name is a sentinel**
+(`insights.identified` / `insights.placed`): the importer writes `Unspecified`
+for a location path with no floor segment and `Unknown` for one with no
+building, and `mtbf` groups equipment it could not extract under
+`(unspecified)`. None of those name a place or a thing — they name the rows we
+could not tell apart — and a catch-all is by construction among the largest
+groups in the data, so an ungated rule ranks it first. `(unspecified)` equipment
+scored 300.0 (2173 issues; its MTBF is the site's arrival rate wearing an asset's
+name) and `DTTA|Unspecified` scored 22.33 against a 10.0 runner-up, on 67 issues
+whose titles read "Annex Level 5", "Annex Level 3", "Annex Level 9" — every floor
+in the building, grouped on the one property they share, which is that the parser
+missed it. A location is guarded on both parts: `Unknown|07` is no more a
+location than `Annex|Unspecified`.
 
 With the guards the same snapshot produces 23 cards, of which the top 10 are
 served.
