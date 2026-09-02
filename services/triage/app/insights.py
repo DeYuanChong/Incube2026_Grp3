@@ -205,6 +205,29 @@ def verified_patterns(raw: list[dict], report_ids: list[str]) -> list[dict]:
     return out
 
 
+def scan_is_live(stored_patterns: list[dict], live_ids: set[str]) -> bool:
+    """Whether a stored pattern scan still describes issues that exist.
+
+    A scan is keyed on the location, not on the issues in it, so anything that
+    reassigns issue ids — a re-import, a `--reset` — leaves every member
+    dangling. The read side then correctly drops all of that scan's patterns
+    while `scanned_at` still says it was scanned an hour ago, so the location
+    goes unscanned until the refresh window expires and the cards silently stay
+    missing. Freshness has to depend on the data, not only on the clock.
+
+    An empty scan has no members to check and stays fresh: "scanned it, found
+    nothing" is an answer, and rescanning it every request is the thing the
+    stored empty row exists to prevent.
+    """
+    if not stored_patterns:
+        return True
+    return any(
+        issue_id in live_ids
+        for pattern in stored_patterns
+        for issue_id in pattern.get("issue_ids") or []
+    )
+
+
 def fault_pattern(pattern: dict) -> float | None:
     """A cross-category pattern worth a card.
 
@@ -340,5 +363,18 @@ if __name__ == "__main__":
     assert fault_pattern(got[0]) == 4 / 3
     assert fault_pattern({**got[0], "shared_root_cause": False}) is None
     assert fault_pattern({"issue_ids": ["i1", "i2"], "shared_root_cause": True}) is None
+
+    # a scan whose members no longer exist is stale however recently it ran
+    live = {"i1", "i2", "i3"}
+    assert scan_is_live([{"name": "A", "issue_ids": ["i1", "i9"]}], live) is True
+    assert scan_is_live([{"name": "A", "issue_ids": ["i8", "i9"]}], live) is False
+    # ...and one whose whole location was re-imported resolves nothing at all
+    assert scan_is_live([{"name": "A", "issue_ids": ["x1"]},
+                         {"name": "B", "issue_ids": ["x2"]}], live) is False
+    # an empty scan is an answer, not a reason to scan again every request
+    assert scan_is_live([], live) is True
+    assert scan_is_live([], set()) is True
+    # a malformed pattern must not crash the freshness check
+    assert scan_is_live([{"name": "A"}], live) is False
 
     print("insights: ok")

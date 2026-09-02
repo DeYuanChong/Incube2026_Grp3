@@ -740,13 +740,18 @@ def refresh_insights(session: Session) -> dict:
 
     stale_before = _cutoff(config.PATTERN_REFRESH_DAYS)
     groups = _grouped(session, "floor")
+    live_ids = {f.issue_id for facts in groups.values() for f in facts}
     for key, facts in sorted(groups.items(), key=lambda kv: len(kv[1]), reverse=True):
         if written["scans"] >= config.PATTERN_SCAN_LIMIT:
             break
         if len(facts) < config.PATTERN_MIN_REPORTS:
             continue  # too few reports for a pattern to be more than a coincidence
         scan = session.get(PatternScan, key)
-        if scan and scan.scanned_at >= stale_before:
+        # Recent is not enough: a scan whose members no longer exist describes
+        # nothing, and the read side drops all of it while the clock still calls
+        # it fresh (`rules.scan_is_live`).
+        if (scan and scan.scanned_at >= stale_before
+                and rules.scan_is_live(json.loads(scan.patterns or "[]"), live_ids)):
             continue
         recent = sorted(facts, key=lambda f: f.created_at, reverse=True)
         recent = recent[:config.PATTERN_MAX_REPORTS]
