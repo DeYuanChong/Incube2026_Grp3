@@ -77,7 +77,8 @@ user uploads is still processed.
 
 ## 5. Proof-of-work relevance verification (Fix & Verify)
 
-- **When**: on every proof upload with `media_type=image`.
+- **When**: on every proof upload with `media_type=image`, once the work order
+  has been **started** (a proof cannot be uploaded on an `open` order).
 - **Call**: vision model with the image (base64 data URL) + issue description +
   evidence recommendation. Output: `{verdict: relevant|irrelevant|inconclusive,
   confidence, reason}`.
@@ -86,19 +87,23 @@ user uploads is still processed.
   partial views, poor lighting, surrounding context) count as `relevant`, and
   `irrelevant` is reserved for clearly unrelated uploads (selfies, random
   screenshots, a different room entirely).
-- **Policy**:
-  - `relevant` → proof accepted for human verification; issue →
-    `pending_verification`; admin notified (`proof.uploaded`).
-  - `irrelevant` with confidence ≥ `RELEVANCE_REJECT_CONFIDENCE` (0.8) →
-    HTTP 422 with the `reason` (e.g. *"The photo shows a corridor, but the
-    issue describes a leaking toilet cistern"*); uploader must re-upload.
-    The rejected proof row is kept for audit. Below the bar, the proof is
-    stored and routed to human review instead.
-  - `inconclusive`, non-image media, vision endpoint down, or
-    `requires_human_verification` → accepted as *unverified*, flagged for the
-    human to judge (AI never blocks a fix from reaching a human).
+- **Two-step upload — the check never blocks or finalises**: uploading runs the
+  check and stores the proof as a **draft** (`submitted=false`) with its verdict;
+  the uploader sees the result and then confirms or cancels.
+  - `relevant` / `inconclusive` / non-image media / vision endpoint down /
+    `requires_human_verification` → the uploader **confirms**
+    (`POST /proofs/{id}/submit`); the proof enters human verification, issue →
+    `pending_verification`, admin notified (`proof.uploaded`).
+  - `irrelevant` with confidence ≥ `RELEVANCE_REJECT_CONFIDENCE` (0.8) → a plain
+    confirm is refused (422 `requires_override`, with the `reason` — e.g. *"The
+    photo shows a corridor, but the issue describes a leaking toilet cistern"*).
+    The uploader either **cancels** (`DELETE /proofs/{id}`, the draft and its file
+    are discarded) and uploads a different proof, or **overrides**
+    (`submit` with `override: true`) — the proof is flagged `ai_overridden` and
+    sent for human sign-off anyway (shown with an "AI overridden" tag).
 - **Final say is always human**: AI relevance is a pre-filter; an admin performs
-  the actual verification (`POST /proofs/{id}/human-verify`).
+  the actual verification (`POST /proofs/{id}/human-verify`) — including on an
+  `ai_overridden` proof.
 
 ## 6. Photo verification & recategorization (Reporting)
 

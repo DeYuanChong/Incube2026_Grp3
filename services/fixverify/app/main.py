@@ -122,31 +122,39 @@ def evidence_recommendation(wo_id: str, session: Session = Depends(get_session))
     return rec
 
 
+def _rejected_by_ai(proof: Proof) -> bool:
+    """The AI is confident the proof is unrelated. This is what an override
+    pushes past; a plain confirm cannot."""
+    return (proof.ai_verdict == "irrelevant"
+            and (proof.ai_confidence or 0.0) >= config.RELEVANCE_REJECT_CONFIDENCE)
+
+
 @app.post("/work-orders/{wo_id}/proofs", status_code=201)
 def upload_proof(
     wo_id: str,
-    background: BackgroundTasks,
     file: UploadFile = File(...),
     note: str | None = Form(None),
     session: Session = Depends(get_session),
     x_user: str = Header("unknown"),
 ):
-    """Upload proof of work → AI relevance check (docs/04 §6).
+    """Upload proof of work and run the AI relevance check (docs/04 §6).
 
-    relevant      → stored, issue → pending_verification, admin notified
-    irrelevant    → HTTP 422 with the reason; uploader must re-upload
-    inconclusive  → stored, flagged for human review (AI never blocks)
+    The proof is stored as a **draft** (`submitted=False`) and the verdict is
+    returned for the uploader to see. Nothing is finalised here: the work order
+    keeps its status, the issue is untouched and no notification fires. The
+    uploader then calls `/proofs/{id}/submit` (confirm, or override an
+    "irrelevant" verdict) or `DELETE /proofs/{id}` (cancel and discard).
 
-    A proof on an 'open' work order means the defect was already resolved on
-    arrival (someone else fixed it / reporter self-serviced): the issue jumps
-    triaged → pending_verification without ever entering in_progress.
+    Requires the work order to be started — a proof cannot be uploaded on an
+    'open' order.
     """
     wo = session.get(WorkOrder, wo_id)
     if not wo:
         raise HTTPException(404, "work order not found")
-    if wo.status not in ("open", "in_progress", "awaiting_proof"):
-        raise HTTPException(409, f"work order status '{wo.status}' does not accept proofs")
-    resolved_on_arrival = wo.status == "open"
+    if wo.status not in ("in_progress", "awaiting_proof"):
+        raise HTTPException(
+            409, f"work order status '{wo.status}' does not accept proofs — "
+                 "start work before uploading proof")
 
     ext = os.path.splitext(file.filename or "")[1] or ".bin"
     path = os.path.join(config.UPLOAD_DIR, f"{uuid.uuid4()}{ext}")
@@ -172,40 +180,83 @@ def upload_proof(
     proof.ai_reason = verdict["reason"]
     proof.ai_confidence = verdict["confidence"]
     session.add(proof)
+    session.commit()
+    session.refresh(proof)
+    return proof
 
-    if (verdict["verdict"] == "irrelevant"
-            and verdict["confidence"] >= config.RELEVANCE_REJECT_CONFIDENCE):
-        wo.status = "awaiting_proof"
-        session.commit()
-        background.add_task(events.publish, "proof.rejected",
-                            {"issue_id": wo.issue_id, "work_order_id": wo.id,
-                             "proof_id": proof.id, "uploaded_by": x_user,
-                             "reason": verdict["reason"]})
+
+class SubmitRequest(BaseModel):
+    override: bool = False
+
+
+@app.post("/proofs/{proof_id}/submit")
+def submit_proof(
+    proof_id: str,
+    body: SubmitRequest,
+    background: BackgroundTasks,
+    session: Session = Depends(get_session),
+    x_user: str = Header("unknown"),
+):
+    """Confirm a draft proof into the human-verification queue.
+
+    A proof the AI is confident is unrelated needs `override=true` to go
+    through; it is then flagged `ai_overridden` so the verifier sees the
+    uploader pushed past the AI. The human sign-off remains the final word."""
+    proof = session.get(Proof, proof_id)
+    if not proof:
+        raise HTTPException(404, "proof not found")
+    if proof.submitted:
+        raise HTTPException(409, "proof already submitted")
+    wo = session.get(WorkOrder, proof.work_order_id)
+    if not wo:
+        raise HTTPException(404, "work order not found")
+    if wo.status not in ("in_progress", "awaiting_proof"):
+        raise HTTPException(409, f"work order status '{wo.status}' does not accept proofs")
+
+    if _rejected_by_ai(proof) and not body.override:
         raise HTTPException(422, detail={
-            "message": "Proof of work rejected as unrelated to the issue. Please re-upload.",
-            "ai_verdict": verdict["verdict"],
-            "ai_reason": verdict["reason"],
+            "message": "The AI judged this proof unrelated to the issue. "
+                       "Override to send it for human sign-off, or cancel and "
+                       "upload a different proof.",
+            "ai_verdict": proof.ai_verdict,
+            "ai_reason": proof.ai_reason,
             "proof_id": proof.id,
+            "requires_override": True,
         })
 
+    proof.submitted = True
+    proof.ai_overridden = _rejected_by_ai(proof) and body.override
     wo.status = "pending_human_verification"
-    if resolved_on_arrival:
-        wo.resolved_on_arrival = True
-        wo.assignee = wo.assignee or x_user
     session.commit()
     session.refresh(proof)
     _set_issue_status(
         wo.issue_id, "pending_verification",
-        "already resolved on arrival — proof uploaded" if resolved_on_arrival
+        "proof of work uploaded (AI relevance overridden)" if proof.ai_overridden
         else "proof of work uploaded",
     )
     background.add_task(events.publish, "proof.uploaded",
                         {"issue_id": wo.issue_id, "work_order_id": wo.id,
-                         "proof_id": proof.id, "uploaded_by": x_user,
+                         "proof_id": proof.id, "uploaded_by": proof.uploaded_by,
                          "ai_verdict": proof.ai_verdict,
-                         "resolved_on_arrival": resolved_on_arrival,
+                         "ai_overridden": proof.ai_overridden,
                          "passed_relevance": proof.ai_verdict == "relevant"})
     return proof
+
+
+@app.delete("/proofs/{proof_id}")
+def cancel_proof(proof_id: str, session: Session = Depends(get_session)):
+    """Discard a draft proof — deletes the file and the row. A proof already
+    submitted for verification cannot be cancelled this way."""
+    proof = session.get(Proof, proof_id)
+    if not proof:
+        raise HTTPException(404, "proof not found")
+    if proof.submitted:
+        raise HTTPException(409, "cannot cancel a proof already submitted for verification")
+    if proof.file_path and os.path.exists(proof.file_path):
+        os.remove(proof.file_path)
+    session.delete(proof)
+    session.commit()
+    return {"deleted": proof_id}
 
 
 @app.get("/proofs/{proof_id}/file")

@@ -60,11 +60,13 @@ flowchart LR
 - Evidence recommendation endpoint (LLM): what proof suits this issue
   (photos, before/after readings, audio) and whether it is visually verifiable
   at all (`requires_human_verification`).
-- Proof upload (multipart) → vLLM vision model checks relevance against the
-  issue description → `accepted` (admin notified for final verification) or
-  `rejected` with a human-readable reason (uploader must re-upload).
+- Proof upload (multipart, requires a started work order) → stores a **draft**
+  and runs the vLLM vision relevance check against the issue description, then
+  returns the verdict. The uploader confirms (`submit` → admin notified for final
+  verification), cancels (`DELETE` → discarded), or, for an AI-`irrelevant`
+  verdict, overrides it into sign-off (flagged `ai_overridden`).
 - Human verification endpoint → PATCHes issue status in reporting, emits
-  `proof.accepted` / `proof.rejected` / `issue.verified`.
+  `issue.verified` on approval or `proof.rejected` on rejection.
 - Files stored on local disk under `data/uploads/` (PoC).
 
 ### Notification (`services/notification`, :8004)

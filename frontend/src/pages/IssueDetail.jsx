@@ -25,6 +25,7 @@ import {
   categoryLabel,
   eventLabel,
   eventTone,
+  proofState,
   sev,
   statusLabel,
   workOrderLabel,
@@ -79,7 +80,11 @@ export default function IssueDetail() {
           const wo = list[0] || null
           setWorkOrder(wo)
           if (!wo) { setProofs([]); setRecommendation(null); return }
-          api.getWorkOrder(wo.id).then((d) => setProofs(d.proofs || [])).catch(() => setProofs([]))
+          // Drafts (submitted=false) belong to the uploader's confirm step on
+          // the Fix & Verify board; the issue page only shows submitted proofs.
+          api.getWorkOrder(wo.id)
+            .then((d) => setProofs((d.proofs || []).filter((p) => p.submitted)))
+            .catch(() => setProofs([]))
           api.evidenceRecommendation(wo.id).then(setRecommendation).catch(() => setRecommendation(null))
         })
         .catch(() => setWorkOrder(null)),
@@ -549,24 +554,6 @@ function TriageOverride({ triage, busy, onSave }) {
   )
 }
 
-/** Icon, colour and wording for one proof. The human verdict wins where it
- *  exists — an admin's decision supersedes the model's. */
-function proofState(proof) {
-  if (proof.human_verdict === 'approved') {
-    return { icon: '✓', label: 'Approved', c: 'var(--ok)', bg: 'var(--ok-soft)' }
-  }
-  if (proof.human_verdict === 'rejected') {
-    return { icon: '✕', label: 'Rejected', c: 'var(--danger)', bg: 'var(--danger-soft)' }
-  }
-  if (proof.ai_verdict === 'irrelevant') {
-    return { icon: '✕', label: 'AI: irrelevant', c: 'var(--danger)', bg: 'var(--danger-soft)' }
-  }
-  if (proof.ai_verdict === 'relevant') {
-    return { icon: '◎', label: 'Awaiting sign-off', c: 'var(--accent)', bg: 'var(--accent-soft)' }
-  }
-  return { icon: '◎', label: 'Inconclusive', c: '#b07a0c', bg: '#fdf6e3' }
-}
-
 function FixVerify({ workOrder, proofs, recommendation, role, busy, onVerify }) {
   return (
     <div className="detail-card">
@@ -612,18 +599,20 @@ function FixVerify({ workOrder, proofs, recommendation, role, busy, onVerify }) 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {proofs.map((proof) => {
                 const state = proofState(proof)
-                const canJudge =
-                  role === 'admin' && !proof.human_verdict && proof.ai_verdict !== 'irrelevant'
+                const canJudge = role === 'admin' && !proof.human_verdict
                 return (
                   <div key={proof.id} className="verify-row">
                     <span className="verify-icon" style={{ background: state.bg, color: state.c }}>
                       {state.icon}
                     </span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 500 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 500 }}>
                         <a href={api.proofFileUrl(proof.id)} target="_blank" rel="noreferrer">
                           {proof.note || `${proof.media_type} proof`}
                         </a>
+                        {proof.ai_overridden && (
+                          <Chip color="#b07a0c" background="#fdf6e3">AI overridden</Chip>
+                        )}
                       </div>
                       <div style={{ fontSize: 11, color: 'var(--muted-2)', marginTop: 2 }}>
                         by {proof.uploaded_by}

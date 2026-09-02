@@ -105,6 +105,13 @@ export const api = {
     if (note) formData.append('note', note)
     return request(`/api/fixverify/work-orders/${id}/proofs`, { method: 'POST', formData })
   },
+  // Confirm a draft proof into the verification queue. override=true pushes an
+  // AI-"irrelevant" proof through to human sign-off anyway.
+  submitProof: (proofId, override = false) =>
+    request(`/api/fixverify/proofs/${proofId}/submit`, { method: 'POST', body: { override } }),
+  // Discard a draft proof (deletes the file and row).
+  cancelProof: (proofId) =>
+    request(`/api/fixverify/proofs/${proofId}`, { method: 'DELETE' }),
   proofFileUrl: (proofId) => `${GATEWAY}/api/fixverify/proofs/${proofId}/file`,
   humanVerify: (proofId, approved, notes) =>
     request(`/api/fixverify/proofs/${proofId}/human-verify`, {

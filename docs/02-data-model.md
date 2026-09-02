@@ -14,8 +14,9 @@ Ownership rules:
   service's `init_db()`, **after** `create_all` — see
   `triage/app/db.py` (`ALTER TABLE … ADD COLUMN IF NOT EXISTS`).
 - **Triage may read the `fixverify` schema** (read-only, raw SQL) — triage
-  folds repair durations, proof rejections, and resolved-on-arrival counts into
-  its analytics (the `vendor_performance` block of `GET /api/triage`).
+  folds repair durations and proof rejections (submitted proofs only) into
+  its analytics (the `vendor_performance` block of `GET /api/triage`); it also
+  reports legacy resolved-on-arrival counts.
 - All other cross-service access stays REST/events.
 - For the PoC all services share one DB role (`app`); in production each
   service would get its own credentials, with a `GRANT SELECT ON ALL TABLES IN
@@ -165,15 +166,20 @@ request and returns
 `pending_human_verification` `verified` `rejected`), `assignee`,
 `is_temporary_fix` (bool), `resolved_on_arrival` (bool — defect was already
 resolved when maintenance arrived, e.g. a spill someone else cleaned up or a
-reporter self-service; the issue skips `in_progress` entirely),
-`evidence_recommendation` (JSON: recommended proof
+reporter self-service; the issue skips `in_progress` entirely. **Legacy**: no
+longer set, since a proof now requires a started work order (doc 04 §5) — kept
+for rows created under the old flow), `evidence_recommendation` (JSON: recommended proof
 types + rationale), `requires_human_verification` (bool — true when the defect
 is not visually verifiable, e.g. smells/noise), `started_at`, `completed_at`
 
 ### `fixverify.proofs`
 `id`, `work_order_id`, `file_path`, `media_type` (`image` `audio` `other`),
 `uploaded_by`, `note`, `ai_verdict` (`relevant` `irrelevant` `inconclusive`),
-`ai_reason` (shown to uploader on rejection), `ai_confidence`,
+`ai_reason` (shown to the uploader with the AI verdict), `ai_confidence`,
+`submitted` (bool — false while the upload is a draft awaiting the uploader's
+confirm/cancel; only a submitted proof enters the human-verification queue),
+`ai_overridden` (bool — the uploader submitted despite an AI `irrelevant`
+verdict; surfaced as an "AI overridden" tag and still left for the admin to judge),
 `human_verdict` (`approved` `rejected`, nullable), `human_verifier`,
 `human_notes`, `created_at`
 
