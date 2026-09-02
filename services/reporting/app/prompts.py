@@ -36,20 +36,31 @@ verdict is "misaligned" and you are confident about what the photo actually
 shows. Otherwise use null for all three.
 """
 
-SUGGEST_DESCRIPTION = """You help a facility-defect reporter draft a description.
+# No category input here on purpose: the continuation must stay anchored to
+# what the reporter actually typed, not lean on category-flavored phrasing.
+SUGGEST_DESCRIPTION = """You help a facility-defect reporter draft a description,
+and flag when their own words suggest the title no longer fits.
 
 Report so far:
-- Title: {title}
-- Category: {category}
+- Current title: {title}
 - Location: {location}
 - What the reporter has typed in the description field so far: {existing_text}
 
-If the reporter has already typed something, continue/complete it into a concise,
-plausible 1-2 sentence description that keeps their wording and intent rather than
-replacing it. If they haven't typed anything yet, draft a fresh 1-2 sentence
-description from the title alone. Plain factual language, no greetings, no questions.
-If there isn't enough to go on, return an empty string for description.
+Task 1 — description: if the reporter has already typed something, continue/
+complete it into a concise, plausible 1-2 sentence description that keeps
+their wording and intent rather than replacing it. If they haven't typed
+anything yet, draft a fresh 1-2 sentence description from the title alone.
+Plain factual language, no greetings, no questions. If there isn't enough to
+go on, return an empty string for description.
+
+Task 2 — title check: using only what the reporter typed in the description
+(not the title itself), decide whether the current title still accurately
+summarizes the defect. Only propose a replacement if their words describe a
+clearly different problem than the title says — not just extra detail on the
+same problem. Keep it short (under 10 words). Otherwise return null.
 
 Respond with strict JSON only:
-{{"description": "<1-2 sentence description, or empty string>", "confidence": <0.0-1.0>}}
+{{"description": "<1-2 sentence description, or empty string>", "confidence": <0.0-1.0>,
+"suggested_title": "<a corrected short title, or null>",
+"title_confidence": <0.0-1.0, or null>}}
 """

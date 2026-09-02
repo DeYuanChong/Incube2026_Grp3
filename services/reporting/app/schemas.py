@@ -64,3 +64,18 @@ class SuggestDescriptionRequest(BaseModel):
 class SuggestDescriptionResponse(BaseModel):
     description: str | None = None
     confidence: float | None = None
+    suggested_title: str | None = None
+    title_confidence: float | None = None
+
+
+class PhotoPreviewResponse(BaseModel):
+    """Response of POST /issues/preview-photo-check — same shape as the
+    verdict a real photo upload produces, but computed before the issue
+    exists (docs/04-ai-integration.md §7)."""
+
+    verdict: str
+    confidence: float
+    reason: str
+    suggested_category: Category | None = None
+    suggested_title: str | None = None
+    suggested_description: str | None = None

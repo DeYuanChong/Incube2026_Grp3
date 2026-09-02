@@ -61,13 +61,29 @@ image and the service will crash with `ModuleNotFoundError`.
   block on the AI being down. The suggested category is *never* used to
   override the user's chosen category — only surfaced as
   `ai_suggested_category` for the reporter to optionally accept via
-  `POST /issues/{id}/accept-suggested-category`. `verify_photo` runs a
+  `POST /issues/{id}/accept-suggested-category`. `suggest_description`
+  (`POST /issues/suggest-description`) drafts/continues the description field
+  as the reporter types — it is intentionally given only `title`, `location`,
+  and `existing_text`, **not `category`**, so a continuation stays anchored to
+  the reporter's own words instead of leaning on category-flavored phrasing
+  (`category` still exists on the request schema for forward compatibility
+  but is not passed into the prompt). It also independently returns
+  `suggested_title`/`title_confidence` when the typed description describes
+  a clearly different defect than the current title — the frontend surfaces
+  this right under the description textarea, styled like the description
+  suggestion, and an accepted title becomes a client-side `titleOverride`
+  that wins over the chip-derived title (see `ReportIssue.jsx`). `verify_photo` runs a
   vision-model check of an uploaded photo against the issue's current
   category/title/description (`VLLM_VISION_MODEL`, currently
   `deepseek/deepseek-v4-flash-vision-exp` per `.env.example`) and returns a
   verdict; same suggest-only rule applies to the `ai_suggested_title`/
   `ai_suggested_description` it can produce (accepted via
-  `POST /issues/{id}/accept-suggested-title`/`-description`).
+  `POST /issues/{id}/accept-suggested-title`/`-description`). A second entry
+  point, `POST /issues/preview-photo-check`, runs the same `verify_photo`
+  call before an issue exists (multipart `category`/`title`/`description`
+  instead of a persisted `Issue`, file deleted right after the call, nothing
+  written to the DB) so the report form can show the same suggestion inline
+  as soon as a photo is picked, pre-submit.
 - `app/events.py` — fire-and-forget event publishing to the gateway's
   `/events` endpoint; failures are logged, never raised, since events are
   best-effort side channels, not the source of truth.

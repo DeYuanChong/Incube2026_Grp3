@@ -50,6 +50,14 @@ export const api = {
   createIssue: (data) => request('/api/reporting/issues', { method: 'POST', body: data }),
   suggestDescription: (data) =>
     request('/api/reporting/issues/suggest-description', { method: 'POST', body: data }),
+  previewPhotoCheck: (file, { category, title, description }) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('category', category)
+    formData.append('title', title)
+    if (description) formData.append('description', description)
+    return request('/api/reporting/issues/preview-photo-check', { method: 'POST', formData })
+  },
   listIssues: (params = {}) => request(`/api/reporting/issues?${qs(params)}`),
   getIssue: (id) => request(`/api/reporting/issues/${id}`),
   acceptSuggestedCategory: (id) =>
