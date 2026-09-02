@@ -11,8 +11,9 @@ All macro-level analysis runs on this snapshot, never on reporting's live DB.
 
 ## One GET, one analytics output
 
-`GET /` (service-local; `/api/triage/` through the gateway) returns the whole
-macro-level output in one object:
+**`GET /api/triage`** returns the whole macro-level output in one object.
+(Service-local the route is `GET /`; the gateway proxies both `/api/triage`
+and `/api/triage/` to it, so the bare path costs no redirect.)
 
 | Key | What |
 |---|---|

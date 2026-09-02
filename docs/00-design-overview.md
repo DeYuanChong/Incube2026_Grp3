@@ -82,7 +82,7 @@ service **writes** only tables in its own schema; commands and state changes
 still travel via REST APIs and gateway events. The one sanctioned cross-schema
 access: **triage may read the `fixverify` schema** (read-only) to fold
 repair-time and proof-quality data into triage analytics
-(the `vendor_performance` block of `GET /api/triage/`).
+(the `vendor_performance` block of `GET /api/triage`).
 
 ## Non-goals (for this PoC)
 

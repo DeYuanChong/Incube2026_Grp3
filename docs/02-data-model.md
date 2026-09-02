@@ -15,7 +15,7 @@ Ownership rules:
   `triage/app/db.py` (`ALTER TABLE … ADD COLUMN IF NOT EXISTS`).
 - **Triage may read the `fixverify` schema** (read-only, raw SQL) — triage
   folds repair durations, proof rejections, and resolved-on-arrival counts into
-  its analytics (the `vendor_performance` block of `GET /api/triage/`).
+  its analytics (the `vendor_performance` block of `GET /api/triage`).
 - All other cross-service access stays REST/events.
 - For the PoC all services share one DB role (`app`); in production each
   service would get its own credentials, with a `GRANT SELECT ON ALL TABLES IN
@@ -154,7 +154,7 @@ reads them off the fact columns.
 
 `issue_count` is a stored high-water mark, refreshed only when a new member
 arrives, so a remediated cluster keeps its peak forever.
-The `systemic` block of `GET /api/triage/` therefore recounts the window per
+The `systemic` block of `GET /api/triage` therefore recounts the window per
 request and returns
 `issue_count_live` and `active` alongside it; neither is a column (doc 05).
 
