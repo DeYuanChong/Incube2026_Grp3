@@ -33,13 +33,24 @@ async function request(path, { method = 'GET', body, formData } = {}) {
   return res.json()
 }
 
+/** Serialises array values as repeated params (?status=a&status=b), which
+ *  `new URLSearchParams(obj)` would otherwise flatten to "a,b". */
+function qs(params = {}) {
+  const search = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === '') continue
+    if (Array.isArray(value)) value.forEach((v) => search.append(key, v))
+    else search.append(key, value)
+  }
+  return search.toString()
+}
+
 export const api = {
   // reporting
   createIssue: (data) => request('/api/reporting/issues', { method: 'POST', body: data }),
   suggestDescription: (data) =>
     request('/api/reporting/issues/suggest-description', { method: 'POST', body: data }),
-  listIssues: (params = {}) =>
-    request(`/api/reporting/issues?${new URLSearchParams(params)}`),
+  listIssues: (params = {}) => request(`/api/reporting/issues?${qs(params)}`),
   getIssue: (id) => request(`/api/reporting/issues/${id}`),
   acceptSuggestedCategory: (id) =>
     request(`/api/reporting/issues/${id}/accept-suggested-category`, { method: 'POST' }),
@@ -57,16 +68,19 @@ export const api = {
   closeIssue: (id, data) =>
     request(`/api/reporting/issues/${id}/close`, { method: 'POST', body: data }),
   statsLoad: () => request('/api/reporting/stats/load'),
+  // Role-scoped KPI aggregates behind the dashboard tiles
+  statsDashboard: (month) => request(`/api/reporting/stats/dashboard?${qs({ month })}`),
 
   // triage
   triageResult: (issueId) => request(`/api/triage/results/${issueId}`),
   runTriage: (issueId) => request(`/api/triage/run/${issueId}`, { method: 'POST' }),
   confirmTriage: (issueId, data) =>
     request(`/api/triage/results/${issueId}/confirm`, { method: 'POST', body: data }),
-  systemic: () => request('/api/triage/analytics/systemic'),
-  metrics: (groupBy = 'category') => request(`/api/triage/analytics/metrics?group_by=${groupBy}`),
-  profiles: (by = 'location') => request(`/api/triage/analytics/profiles?by=${by}`),
-  vendorPerformance: () => request('/api/triage/analytics/vendor-performance'),
+  // One GET returns the whole analytics output — systemic, profiles,
+  // vendor_performance and the ranked insight cards (docs/05).
+  triageOverview: (by = 'location') => request(`/api/triage?${qs({ by })}`),
+  // Kept for the sidebar badge, which wants the cards and nothing else.
+  insights: () => request('/api/triage').then((d) => d.insights),
 
   // fix & verify
   listWorkOrders: (params = {}) =>

@@ -176,6 +176,9 @@ def map_row(row: dict, reporter_name: str) -> tuple[dict, dict]:
         "room": room,
         "equipment_name": parse_equipment(row.get("Equipment Name")),
         "reporter_name": reporter_name,
+        # The masked export carries no contact numbers; the column is NOT NULL,
+        # so historical rows import with an empty string rather than a value.
+        "mobile_number": "",
         "status": status,
         # Triage never ran on this data — severity/urgency stay NULL, and
         # is_critical_system is write-only in the app today (nothing reads it).

@@ -55,6 +55,16 @@ async def event_bus(event: dict):
     return {"event_type": event_type, "deliveries": deliveries}
 
 
+@app.api_route("/api/{service}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def proxy_root(service: str, request: Request):
+    """A service's own root — `/api/triage` is the triage analytics output.
+
+    Without this the bare path only 307s to `/api/triage/`, which costs a round
+    trip and which some clients answer by dropping the method or the body.
+    """
+    return await proxy(service, "", request)
+
+
 @app.api_route(
     "/api/{service}/{path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE"],

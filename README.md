@@ -18,7 +18,7 @@ powered by a self-hosted OpenAI-compatible vLLM endpoint.
 | `services/triage` | 8002 | Severity/urgency suggestion, duplicate detection, systemic-fault analytics, MTBF/MTTR |
 | `services/fixverify` | 8003 | Work orders, proof-of-work upload, AI relevance verification, human verification |
 | `services/notification` | 8004 | In-app notification inbox, driven by events |
-| `frontend` | 5173 | React dashboard (report, track, triage board, fix & verify, notifications) |
+| `frontend` | 5173 | React app (defects dashboard, AI insights, report, triage board, fix & verify, notifications) |
 
 See `docs/` for the full design documentation:
 
@@ -71,8 +71,12 @@ cd frontend && npm install && npm run dev
 
 Ports: gateway 8000, reporting 8001, triage 8002, fixverify 8003, notification 8004.
 
-Open http://localhost:5173. Pick a role (Reporter / Maintenance / Admin) from the
-role picker — this is a proof of concept, there is no real authentication.
+Open http://localhost:5173. Pick a name and role (Reporter / Maintenance / Admin)
+in the sidebar footer — this is a proof of concept, there is no real
+authentication. The role decides what the API returns, not just what the nav
+shows: a reporter sees only issues they reported, maintenance only issues that
+have reached `in_progress` or later, an admin everything. See
+`frontend/README.md`.
 
 ## Repository layout
 
@@ -85,6 +89,9 @@ services/
   fixverify/           Work orders & proof verification
   notification/        In-app notifications
 frontend/              React (Vite) app
+  src/components/      app shell + shared UI (KPI tiles, pills, chips, states)
+  src/lib/             design tokens and age/SLA formatting
+  src/pages/           one file per screen
 docker-compose.yml
 .env.example
 ```
