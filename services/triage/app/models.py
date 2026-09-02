@@ -68,3 +68,43 @@ class SystemicCluster(SQLModel, table=True):
     last_seen: str = ""
     recommendation: str | None = None  # LLM preventive/prescriptive advice
     updated_at: str = Field(default_factory=now_iso)
+
+
+class InsightAction(SQLModel, table=True):
+    """An LLM-written `action` for one insight card.
+
+    The id is `<card_id>@<evidence_key>`, so a card whose evidence has moved on
+    misses the lookup and is rewritten rather than serving advice about issues
+    that have since rolled out of the window. That is the one thing
+    `SystemicCluster.recommendation` gets wrong (docs/05) and the fix costs a
+    hash — the old row is left as the record of what was said at the time.
+    """
+
+    __tablename__ = "insight_actions"
+    __table_args__ = {"schema": "triage"}
+
+    id: str = Field(primary_key=True)  # f"{card_id}@{evidence_key}"
+    card_id: str = Field(index=True)
+    action: str
+    created_at: str = Field(default_factory=now_iso)
+
+
+class PatternScan(SQLModel, table=True):
+    """One LLM pass over a location's free text: the recurring faults it found
+    across categories the cluster key cannot span (`category|building|floor`
+    keys on one category, so nothing spanning several is expressible).
+
+    One row per location, replaced when it goes stale — including a row with an
+    empty `patterns`, so "scanned, found nothing" is a stored answer and not a
+    reason to scan again on the next request.
+    """
+
+    __tablename__ = "pattern_scans"
+    __table_args__ = {"schema": "triage"}
+
+    group_key: str = Field(primary_key=True)  # "building|floor"
+    # JSON list of {name, issue_ids, shared_root_cause, why}. Members are the
+    # issue ids the LLM's indices resolved to, so a pattern's count is the
+    # length of a list we built — never a number the model stated.
+    patterns: str = "[]"
+    scanned_at: str = Field(default_factory=now_iso)

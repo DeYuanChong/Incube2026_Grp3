@@ -11,8 +11,9 @@ All macro-level analysis runs on this snapshot, never on reporting's live DB.
 
 ## One GET, one analytics output
 
-`GET /` (service-local; `/api/triage/` through the gateway) returns the whole
-macro-level output in one object:
+**`GET /api/triage`** returns the whole macro-level output in one object.
+(Service-local the route is `GET /`; the gateway proxies both `/api/triage`
+and `/api/triage/` to it, so the bare path costs no redirect.)
 
 | Key | What |
 |---|---|
@@ -20,7 +21,8 @@ macro-level output in one object:
 | `systemic` | every stored cluster with its live count, `active` flag and recommendation |
 | `profiles` | per-group backlog shape, trend, repeat rate and duplicate rate |
 | `vendor_performance` | per-assignee speed and quality, read from the `fixverify` schema |
-| `insights` | the findings over all of the above (next section) |
+| `insights` | the top 10 findings over all of the above, ranked (next section) |
+| `insight_count` | how many findings there were before the cut |
 
 There is no `metrics` key and no per-block endpoint. MTBF and MTTR are still
 computed — `insights` is built on them — but they are not served: raw metrics are
@@ -34,42 +36,168 @@ response reports what it resolved to.
 
 ## Insights
 
-Each insight is flat: a `kind`, the `group` it is about, a one-sentence `detail`,
-and an `evidence` dict holding the figures that tripped the rule.
+`insights` is a list of **cards**, ranked worst-first and cut to
+`insights.LIMIT` (10); `insight_count` says how many were behind them. A card is
+something an admin can act on and then check:
 
-| `kind` | Fires when | Says |
+| Field | What |
+|---|---|
+| `id`, `kind`, `source` | `systemic:<uuid>`, `trend:<group>`, `mtbf:<asset>`… ; `kind` is `systemic` / `predictive` / `pre-emptive`; `source` names the rule |
+| `score` | how far past its own threshold this finding sits — what the list is ranked on |
+| `active` | whether it still clears the threshold today (systemic cards only; the rest are always live) |
+| `title`, `body`, `action` | the finding, the numbers behind it, and what to do |
+| `evidence` | three `{label, value}` pairs — the figures that tripped the rule |
+| `filter` | how to find these issues in the defect list, stated by the side that knows the group |
+| `linked`, `linked_count` | the issues themselves, so the number is falsifiable |
+
+`action` on a systemic card is the LLM's recommendation, written once at
+detection time; on every other card it is fixed prose, because a threshold has
+only one thing to say.
+
+### The rules
+
+| `source` | Fires when | Says |
 |---|---|---|
-| `systemic_active` | a cluster still clears `SYSTEMIC_MIN_COUNT` in the live window | the root cause has not been fixed |
-| `worsening` | `trend_pct ≥ 50` on ≥ 3 issues this window | this place is getting worse against its own baseline |
-| `chronic` | `repeat_rate ≥ 0.5` on ≥ 3 issues this window | repairs here are not holding |
-| `duplicate_heavy` | `duplicate_rate ≥ 0.3` over ≥ 5 issues | one defect is costing several tickets |
-| `rapid_recurrence` | `mtbf_days ≤ 7` | preventive work beats repeat repairs |
-| `slow_repair` | MTTR ≥ 2× the median group's, over ≥ 3 repairs | this group is slow relative to the others |
-| `verification_bottleneck` | `verification_overhead_days > mttr_days` | the sign-off queue, not the repair, is the delay |
-| `proof_quality` | rejection rate ≥ 0.3 over ≥ 5 proofs | this assignee's speed numbers are not the whole story |
+| `systemic_cluster` | a cluster has a recommendation to give | the root cause behind these tickets |
+| `profile_trend` | `trend_pct ≥ 50` on ≥ 3 issues this window | this place is getting worse against its own baseline |
+| `profile_repeat` | `repeat_rate ≥ 0.5` on ≥ 3 issues, ≥ 2 categories | the same kinds of fault keep coming back |
+| `profile_duplicate` | `duplicate_rate ≥ 0.3` over ≥ 5 issues | one defect is opening several tickets |
+| `mtbf` | a named asset failing every < 60 days over ≥ 3 failures | repeat repair is costing more than replacement |
+| `mttr` (slow) | MTTR ≥ 2× the median location's, over ≥ 3 repairs | the repair itself is slow here |
+| `mttr` (sign-off) | sign-off ≥ 1 day *and* longer than the repair, over ≥ 3 repairs | the queue, not the repair, is the delay |
+| `vendor_performance` | rejection rate ≥ 0.5 over ≥ 3 proofs | this assignee's speed numbers are not the whole story |
+| `fault_pattern` | ≥ 3 reports the model grouped as one fault and called a shared root cause | a fault the cluster key cannot see, because it spans categories |
 
-`chronic` is skipped when `group_by=category`, where `repeat_rate` is degenerate
-(the group *is* one category, so every issue after the first counts and the rule
-would fire on all of them while saying nothing). `slow_repair` needs a baseline,
-so a single group is never slow — the median across groups is what it compares
-against, since one abandoned ticket drags a mean and not a median.
+### Silence is a feature
 
-**Rules, not an LLM, and deliberately.** Every rule above is a threshold over
-numbers already computed, so a finding is reproducible, cheap and arguable — an
-admin can read the evidence and disagree with it. The one genuinely generative
-judgement in this service, *what to do about a cluster*, is already the LLM's in
-`SystemicCluster.recommendation` and rides along in `systemic`. What an LLM would
-add that rules cannot is correlation across the free text of descriptions — the
-same "water ingress" language surfacing under plumbing, electrical and aircon in
-one building, which a `category|building|floor` cluster key structurally cannot
-see. That is a wider cluster key and a new prompt rather than an insight rule;
-`app/insights.py::derive` is where it would land.
+Three guards exist because the rules were run over a real 2182-issue snapshot and
+fired 62 times across 63 location groups — a metrics table with sentences
+attached. Each guard is a condition under which a rule *cannot* mean anything,
+not a tuned threshold:
 
-Thresholds are module constants in `app/insights.py`, next to the rules they
-gate, because a site whose normal is not this normal needs them tuned. The
-minimum counts (`MIN_RECENT`, `MIN_TOTAL`, `MIN_REPAIRED`, `MIN_PROOFS`) are
-there so a rate over two tickets is never reported as a trend. Self-check:
-`python3 insights.py`.
+- **`profile_repeat` needs ≥ 2 categories in the window.** `repeat_rate` is
+  `(n − distinct categories)/n`, so a group holding one category reports
+  `(n−1)/n` by construction. On a snapshot where every issue is `others` that
+  fired on 21 of 63 locations and meant "this location had more than two
+  tickets" every time. Same reason `by=category` is excluded: there the group
+  *is* one category.
+- **`mttr` (sign-off) needs ≥ 1 day of overhead.** Beating the repair is not
+  enough on its own — a four-minute job is beaten by any sign-off at all, which
+  put `MSCP|L09` (0.18d over a 0.04d repair) next to `Annex|06` (3.24d over 56
+  repairs).
+- **The MTTR baseline excludes groups under `MIN_REPAIRED`.** Five equipment
+  groups with a single repair each pull the median to 0.17 days, after which
+  every group with real volume reads as slow.
+
+`mtbf` carries a fourth: `(unspecified)` is skipped, because it is every issue
+with no equipment extracted and its MTBF is the site's arrival rate wearing an
+asset's name.
+
+With the guards the same snapshot produces 23 cards, of which the top 10 are
+served.
+
+### What the LLM writes, and what it is never allowed to count
+
+Two of the rules' outputs are improved by a model, and both were chosen by
+probing the real snapshot rather than by argument.
+
+**`action`, on `mtbf` and `profile_trend` cards.** The rule's template says
+*look for the asset behind this*; given the linked reports the model says
+*which* asset. On the snapshot it named the air-con switch behind
+`DIC-AC-0032` and the post-lunch cooling failure at Annex/06, both of which are
+in the reports and neither of which a threshold can reach. Other sources keep
+their template — a threshold has only one thing to say.
+
+**`fault_pattern` cards.** `category|building|floor` keys on a single category,
+so a fault appearing under several of them is not expressible as a cluster. The
+model groups a location's free text instead, and on one floor it found six
+recurring faults — aircon, water dispensers, leaks, toilets, lighting, pests —
+in reports that were all filed as `others`.
+
+**It proposes the grouping; it never states the count.** Asked how many reports
+were in each pattern it undercounted every one, leaks by half. So the prompt
+asks for *report numbers*, `insights.verified_patterns` resolves those to issue
+ids, and a pattern's count is the length of the list we built. Indices outside
+the list are dropped, a report claimed twice goes to the first pattern that
+claimed it, and a pattern left under `PATTERN_MIN_MEMBERS` is dropped whole. The
+same invariant as `systemic_payload`: the count *is* the evidence.
+
+**Why the cheap model is enough.** Five candidates were run over the same 60
+reports. All five returned valid JSON with no out-of-range and no
+double-claimed indices, so `verified_patterns` had nothing to catch on any of
+them — model choice here is not a reliability question. On the share of a
+pattern's members whose text matches the name the model gave it,
+`gemini-2.5-flash` led at 48/49 against `gemini-2.5-flash-lite`'s 39/47, for
+44x the cost and a 31.9s call that does not fit `AI_TIMEOUT_SECONDS`. The
+undercounting that made a stronger model look necessary is fixed in
+`verified_patterns` rather than by paying for one, so the service stays on
+`gemini-2.5-flash-lite` (3.1s, and every pattern and action recorded above came
+from it). `VLLM_TEXT_MODEL` is the only thing to change if that stops holding —
+raise `AI_TIMEOUT_SECONDS` past the new model's latency at the same time.
+
+Ranking is not one of the two. Told to weigh how much evidence backed each
+finding, the model still put three cards backed by five or six issues above a
+sign-off backlog measured over fifty-six repairs. That bias belongs to `score`
+and is fixed by weighting it, not by asking a model.
+
+### Nothing blocks on the model
+
+`GET /api/triage` makes no model calls. Cards are read from stored rows and
+served with their template `action` until a written one exists; the fill runs as
+a background task after the response, bounded by `INSIGHT_ACTION_LIMIT` and
+`PATTERN_SCAN_LIMIT` so a burst of reads cannot fan out into a burst of calls. A
+failed call stores nothing and is retried on a later request — the same rule
+that leaves a cluster's recommendation null until it lands, and never a
+half-written card.
+
+An action is stored under `<card id>@<hash of its linked issue ids>`, so a card
+whose evidence has moved on misses the lookup and is rewritten rather than
+serving advice about issues that rolled out of the window. That is the one thing
+a cluster's write-once recommendation gets wrong, and here it costs a hash.
+
+`PatternScan` holds one row per location, rewritten after
+`PATTERN_REFRESH_DAYS` — including a row with no patterns, so *scanned and found
+nothing* is a stored answer rather than a reason to scan again on every request.
+
+### Rules, not an LLM, and deliberately
+
+Every rule is a threshold over numbers already computed, so a finding is
+reproducible, cheap and arguable — an admin can read `evidence`, open `linked`
+and disagree. The one genuinely generative judgement in this service, *what to do
+about a cluster*, is already the LLM's in `SystemicCluster.recommendation` and
+arrives as a systemic card's `action`.
+
+What an LLM would add that rules cannot is correlation across the free text of
+descriptions — the same "water ingress" language surfacing under plumbing,
+electrical and aircon in one building, which a `category|building|floor` cluster
+key structurally cannot see. That is a wider cluster key and a new prompt rather
+than an insight rule.
+
+### Two more deliberate properties
+
+- **No confidence score and no cost figure.** Nothing in the system produces
+  either. A card carries counts, rates and windows that a reader can follow back
+  to `linked[]` — the same argument as returning a cluster's evidence rather
+  than only its sentence.
+- **`filter` says how to find the card's issues** (`{search, category}`), stated
+  server-side because this is the side that knows the group: a systemic card's
+  `id` is a cluster UUID, and `cluster_key` is not safely parseable back into
+  fields.
+
+### Where the pieces live
+
+`app/insights.py` holds the thresholds, the guards and the scoring, one function
+per rule returning a score or `None`. It touches no database and no prose, so it
+runs its own check with `python3 insights.py`. `analytics.insights` owns the
+cards: it gathers the aggregates, writes the title / body / action and attaches
+the linked issues.
+
+**`score` ranks within a rule, and only orders across them.** It is the
+observation as a multiple of the threshold it cleared, so 2.0 is twice as far
+past the line as 1.0 on the *same* rule — but 2× the trend threshold is not "as
+bad as" 2× the MTBF threshold. It has a known bias towards small samples: a
+location going 1 → 6 issues scores 10.0 and outranks a sign-off backlog measured
+over 56 repairs. Weight per kind in `insights.py` if that ordering matters.
 
 ## Systemic-fault detection (macro level)
 
@@ -193,11 +321,12 @@ admin — it publishes no events at all (the gateway routes `issue.created`,
 `issue.status_changed` and `issue.closed` *to* triage; nothing goes the other
 way, and the service has no `GATEWAY_URL`).
 
-**Where the line has since moved.** `GET /analytics/insights` ranks clusters —
-with trends, asset MTBF and proof-rejection rates — and decides which clear a
-threshold worth an admin's attention. That is a *read-time* judgement over data
-triage already owns, in the same class as `/analytics/systemic`, and it keeps
-the thresholds in one curl-testable place instead of in a client. Triage still
+**Where the line has since moved.** The `insights` block of `GET /` ranks
+clusters — with trends, asset MTBF, repair timings and proof-rejection rates —
+and decides which clear a threshold worth an admin's attention. That is a
+*read-time* judgement over data triage already owns, in the same class as the
+`systemic` block beside it, and it keeps the thresholds in one curl-testable
+place instead of in a client. Triage still
 pushes nothing: no events, no notifications, no drafts. The push side of
 escalation, below, remains unowned and unbuilt.
 
@@ -276,9 +405,11 @@ MTBF(g) = mean(created_at[i+1] - created_at[i])        # requires ≥ 2 failures
 ```
 
 Computed in days over the grouping `?by=` resolves to. Not returned — it feeds
-the `rapid_recurrence` insight, which is the same conclusion (low MTBF + a live
-cluster ⇒ preventive maintenance instead of repeat repairs) with the number
-attached as evidence.
+the `mtbf` card, which is the same conclusion (an asset failing faster than
+replacement economics allow ⇒ root-cause inspection instead of repeat repairs)
+with the number attached as evidence. The card is raised per *asset*, never for
+`(unspecified)`: MTBF over every issue with no equipment extracted is the site's
+arrival rate wearing an asset's name.
 
 **Duplicates are collapsed first, because a duplicate is the same defect
 reported again, not the asset failing again.** Counting the confirmations
@@ -357,33 +488,6 @@ order.
 The gate has a known consequence: a gated issue stays at `triaged` with no work
 order of its own, and nothing closes it when the primary is resolved (see below).
 For the PoC an admin closes it via the status API.
-
-## Insights: the admin-facing read of all of the above
-
-`GET /analytics/insights` composes the four aggregates into one ranked list of
-recommendation cards, so an admin has a single screen to look at rather than
-four endpoints to correlate. Live findings sort above decayed ones, then by
-weight of evidence.
-
-| Card `kind` | Raised when | `action` is |
-|---|---|---|
-| `systemic` | a stored cluster still clears `SYSTEMIC_MIN_COUNT` in the window | the cluster's stored LLM recommendation |
-| `predictive` | a location's `trend_pct` ≥ 50% on ≥ 3 recent issues | templated: look for the single asset behind the rise |
-| `pre-emptive` | asset MTBF < 60 days on ≥ 3 failures; or a location's `repeat_rate` ≥ 0.5 on ≥ 3 recent issues; or an assignee's `proof_rejection_rate` ≥ 0.5 on ≥ 3 proofs | templated: root-cause inspection, standing fault, or send the evidence recommendation with the dispatch |
-
-Three properties are deliberate:
-
-- **`repeat_rate` cards are location-only.** For `by=category` the rate is
-  degenerate — the group *is* one category, so every issue after the first
-  counts (see Profiles) — and a card built on it would fire everywhere.
-- **No confidence score and no cost figure.** Nothing in the system produces
-  either. A card carries counts, rates and windows that a reader can follow back
-  to `linked[]`, which is the same argument as returning the cluster's evidence
-  rather than only its sentence.
-- **`filter` says how to find the card's issues** (`{search, category}`).
-  Stated server-side because this is the side that knows the group: a systemic
-  card's `id` is a cluster UUID, and `cluster_key` is not safely parseable back
-  into fields.
 
 ## Known gaps (as built)
 

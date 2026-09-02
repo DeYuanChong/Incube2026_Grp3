@@ -44,3 +44,39 @@ likely root cause (not per-ticket repairs).
 Respond with strict JSON only:
 {{"recommendation": "<2-3 sentences>"}}
 """
+
+CARD_ACTION = """You are a facilities maintenance planner. A monitoring rule raised
+this finding about a building:
+
+FINDING: {title}
+{body}
+EVIDENCE: {evidence}
+
+The defect reports behind it:
+{reports}
+
+State ONE concrete next action. If the reports show a specific recurring fault,
+name it. If they do not, say the finding is a volume signal only and say what
+would confirm a cause. Do not invent detail that is not in the reports above.
+
+Respond with strict JSON only:
+{{"action": "<two sentences maximum>"}}
+"""
+
+FAULT_PATTERNS = """These are {count} facility defect reports from one location
+({where}). They are filed under a single category, so category grouping tells us
+nothing — the patterns have to come from what the reports say.
+
+{reports}
+
+Group them into recurring fault patterns. Assign each report to AT MOST ONE
+pattern. Only report a pattern with {minimum} or more reports. Leave unrelated
+reports out entirely rather than forcing them into a group. `shared_root_cause`
+is whether the reports in the pattern plausibly come from ONE underlying fault,
+as opposed to separate things that happen to be similar.
+
+Respond with strict JSON only:
+{{"patterns": [{{"name": "<short name>", "reports": [<report numbers>],
+  "shared_root_cause": <true|false>, "why": "<one sentence>",
+  "action": "<one concrete next step>"}}]}}
+"""

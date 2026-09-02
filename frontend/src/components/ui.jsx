@@ -90,7 +90,7 @@ export function KpiCard({ label, value, delta, deltaTone = 'muted', note, onClic
 }
 
 /** The mock's `pills(list, active, key)` helper. */
-export function Pills({ legend, options, value, onChange, labelOf = (v) => v }) {
+export function Pills({ legend, options, value, onChange, labelOf = (v) => v, titleOf }) {
   return (
     <div className="filter-row">
       {legend && <span className="filter-legend">{legend}</span>}
@@ -99,6 +99,7 @@ export function Pills({ legend, options, value, onChange, labelOf = (v) => v }) 
           type="button"
           key={option}
           className={`pill${option === value ? ' on' : ''}`}
+          title={titleOf ? titleOf(option) : undefined}
           onClick={() => onChange(option)}
         >
           {labelOf(option)}

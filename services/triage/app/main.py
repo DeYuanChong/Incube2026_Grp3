@@ -89,6 +89,7 @@ def confirm_result(
 
 @app.get("/")
 def overview(
+    background: BackgroundTasks,
     session: Session = Depends(get_session),
     by: str = Query("location", pattern="^(location|category|equipment)$"),
 ):
@@ -99,35 +100,31 @@ def overview(
     off the list instead of topping it forever. MTBF and MTTR are computed here to
     feed `insights` but are not returned: raw metrics are generated elsewhere, and
     what this endpoint owes a caller is the findings over them.
+
+    `by` shapes the `profiles` block only. The cards span locations, assets and
+    assignees whatever it is set to, because a finding is not the admin's choice
+    of grouping.
+
+    ponytail: `analytics.insights` recomputes the three blocks below rather than
+    being handed them, so a request scans the snapshot a few times over. Pass the
+    computed rows in if the snapshot ever grows enough for that to show.
     """
-    group_by = analytics.group_for(by)
-    clusters = analytics.systemic_clusters(session)
-    profiles = analytics.profiles(session, by)
-    vendors = analytics.vendor_performance(session)
+    cards = analytics.insights(session)
+    # The LLM work behind the cards happens after the response, never in it: a
+    # card with no written action serves its template and is filled for next
+    # time, which is the same "null until it lands" rule systemic_payload
+    # follows. Bounded per run in config, so a burst of reads cannot fan out.
+    background.add_task(_refresh_insights)
     return {
-        "group_by": group_by,
-        "systemic": clusters,
-        "profiles": profiles,
-        "vendor_performance": vendors,
-        "insights": insights.derive(
-            clusters, profiles,
-            analytics.mtbf(session, group_by), analytics.mttr(session, group_by),
-            vendors, group_by, config.SYSTEMIC_WINDOW_DAYS,
-        ),
+        "group_by": analytics.group_for(by),
+        "systemic": analytics.systemic_clusters(session),
+        "profiles": analytics.profiles(session, by),
+        "vendor_performance": analytics.vendor_performance(session),
+        # Ranked worst-first and cut here, not in the rules: a caller wants the
+        # worst few, and `insight_count` says how much was behind them.
+        "insights": cards[:insights.LIMIT],
+        "insight_count": len(cards),
     }
-
-
-@app.get("/analytics/insights")
-def get_insights(session: Session = Depends(get_session)):
-    """Systemic, trend, asset-reliability and proof-quality findings as one
-    ranked list of recommendation cards.
-
-    Assembled here rather than in the client so the thresholds that decide what
-    is worth an admin's attention live in one place and can be checked with
-    curl. Closes the gap docs/05 records as "nobody escalates a cluster" — an
-    admin no longer has to open a triaged issue to learn about one.
-    """
-    return analytics.insights(session)
 
 
 @app.post("/analytics/sync")
@@ -140,6 +137,17 @@ def sync_snapshot(session: Session = Depends(get_session)):
         pipeline.sync_issue_fact(session, issue)
     session.commit()
     return {"synced": len(issues)}
+
+
+def _refresh_insights() -> None:
+    """Background fill with its own DB session, as `_handle_event` has."""
+    from sqlmodel import Session as _Session
+
+    with _Session(engine) as session:
+        try:
+            analytics.refresh_insights(session)
+        except Exception:
+            log.warning("insight refresh failed", exc_info=True)
 
 
 def _handle_event(event: dict) -> None:
