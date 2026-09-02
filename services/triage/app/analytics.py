@@ -295,15 +295,17 @@ def _linked_summary(fact: IssueFact) -> dict:
 def _insight(
     *, id: str, kind: str, source: str, score: float, title: str, body: str,
     action: str, window_days: int, evidence: list[dict], linked: list[IssueFact],
-    active: bool = True, filter: dict | None = None,
+    active: bool = True,
 ) -> dict:
     """`score` is how far past its own threshold this finding sits, and is what
     the list is ranked on (`insights.py`).
 
-    `filter` is how to find this finding's issues in the defect list. Stated here
-    because this is the side that knows the group — leaving the client to
-    reconstruct it from `id` means parsing a cluster UUID back into a location,
-    which cannot work.
+    `linked` is how a caller finds this finding's issues — the ids, not a
+    description of where to look for them. This used to also carry a `filter`
+    (a location search the client re-ran against the defect list), which was a
+    different set for every card kind: a fault pattern is a subset of a floor,
+    every windowed card is a subset of all time, and none of them are the
+    location's listing. Say which issues, not roughly where.
     """
     return {
         "id": id,
@@ -316,7 +318,6 @@ def _insight(
         "action": action,
         "window_days": window_days,
         "evidence": evidence,
-        "filter": filter,
         "linked_count": len(linked),
         # ponytail: uncapped, as systemic_payload.issues is. The list *is* the
         # count, so a cap needs a truncation flag; paginate when a card links
@@ -405,10 +406,6 @@ def insights(session: Session) -> list[dict]:
             ),
             action=cluster["recommendation"],
             window_days=window,
-            filter=(
-                {"search": f"{sample.building} / {sample.floor}", "category": sample.category}
-                if sample else None
-            ),
             evidence=[
                 {"label": "Issues now", "value": cluster["issue_count_live"]},
                 {"label": "At detection", "value": cluster["issue_count"]},
@@ -428,7 +425,6 @@ def insights(session: Session) -> list[dict]:
         )
         sample = recent[0] if recent else None
         where = f"{sample.building} / {sample.floor}" if sample else profile["group"]
-        where_filter = {"search": where, "category": None} if sample else None
 
         # 2. Getting worse: this window against the one before it.
         score = rules.trend(profile)
@@ -449,7 +445,6 @@ def insights(session: Session) -> list[dict]:
                     "more reactive callouts here; the linked issues show the mix."
                 ),
                 window_days=profile["window_days"],
-                filter=where_filter,
                 evidence=[
                     {"label": "This window", "value": profile["recent"]},
                     {"label": "Previous", "value": profile["prior"]},
@@ -478,7 +473,6 @@ def insights(session: Session) -> list[dict]:
                     "tickets, and hold sign-off until a post-fix check passes."
                 ),
                 window_days=profile["window_days"],
-                filter=where_filter,
                 evidence=[
                     {"label": "Repeat rate", "value": f"{int(profile['repeat_rate'] * 100)}%"},
                     {"label": "Issues", "value": profile["recent"]},
@@ -507,7 +501,6 @@ def insights(session: Session) -> list[dict]:
                     "duplicated callouts."
                 ),
                 window_days=profile["window_days"],
-                filter=where_filter,
                 evidence=[
                     {"label": "Duplicate rate", "value": f"{int(profile['duplicate_rate'] * 100)}%"},
                     {"label": "Issues", "value": profile["total"]},
@@ -545,7 +538,6 @@ def insights(session: Session) -> list[dict]:
                 "price a replacement against the callouts this asset is taking."
             ),
             window_days=window,
-            filter={"search": row["group"], "category": None},
             evidence=[
                 {"label": "MTBF", "value": f"{row['mtbf_days']}d"},
                 {"label": "Failures", "value": row["issue_count"]},
@@ -563,7 +555,6 @@ def insights(session: Session) -> list[dict]:
         repaired = sorted((f for f in facts if f.fixed_at), key=lambda f: f.created_at)
         sample = repaired[0] if repaired else None
         where = f"{sample.building} / {sample.floor}" if sample else row["group"]
-        where_filter = {"search": where, "category": None} if sample else None
 
         score = rules.slow_repair(row, baseline)
         if score is not None:
@@ -584,7 +575,6 @@ def insights(session: Session) -> list[dict]:
                     "adding capacity — the delay may not be the repair itself."
                 ),
                 window_days=window,
-                filter=where_filter,
                 evidence=[
                     {"label": "MTTR", "value": f"{row['mttr_days']}d"},
                     {"label": "Median", "value": f"{baseline}d"},
@@ -611,7 +601,6 @@ def insights(session: Session) -> list[dict]:
                     "already done while the ticket is still counted as open."
                 ),
                 window_days=window,
-                filter=where_filter,
                 evidence=[
                     {"label": "Sign-off", "value": f"{row['verification_overhead_days']}d"},
                     {"label": "Repair", "value": f"{row['mttr_days']}d"},
@@ -689,7 +678,6 @@ def insights(session: Session) -> list[dict]:
                     "Inspect these as one fault rather than as separate tickets."
                 ),
                 window_days=window,
-                filter={"search": where, "category": None},
                 evidence=[
                     {"label": "Reports", "value": len(linked)},
                     {"label": "Shared cause", "value": "yes"},

@@ -16,14 +16,16 @@ import { INSIGHT_KIND } from '../lib/tokens'
 const KIND_FILTERS = ['All', 'systemic', 'predictive', 'pre-emptive']
 const kindToken = (kind) => INSIGHT_KIND[kind] || { c: '#5b6472', bg: '#f1f4f8', label: kind }
 
-/** Deep link to the dashboard, pre-filtered to this finding's issues.
- *  The server states the filter (`insight.filter`) because it is the side that
- *  knows the group — a systemic insight's id is a cluster UUID, which cannot be
- *  reconstructed into a location. */
+/** Deep link to the dashboard, showing exactly the issues this card counted.
+ *
+ *  The card already carries them (`linked`), so the link states their ids. It
+ *  used to state a location text search instead, which is a different set for
+ *  every card kind: a fault pattern is a subset of a floor, a windowed card is
+ *  a subset of all time, and `open=1` dropped the 91% of issues that are
+ *  closed — so "See 67 defects" landed on 8, none of them necessarily the 67. */
 const linkFor = (insight) => {
-  if (!insight.filter?.search) return '/'
-  const params = new URLSearchParams({ open: '1', q: insight.filter.search })
-  if (insight.filter.category) params.set('category', insight.filter.category)
+  const params = new URLSearchParams()
+  insight.linked.forEach((issue) => params.append('id', issue.issue_id))
   return `/?${params}`
 }
 
@@ -224,7 +226,7 @@ function Card({ insight }) {
           {insight.action}
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 'auto', paddingTop: 13, flexWrap: 'wrap' }}>
-          {insight.linked_count > 0 && insight.filter?.search && (
+          {insight.linked.length > 0 && (
             <Link to={linkFor(insight)}>
               <button className="ghost" type="button">
                 See {insight.linked_count} defect{insight.linked_count === 1 ? '' : 's'}
@@ -294,7 +296,7 @@ function FeedRow({ insight }) {
         <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--text-2)', marginTop: 6 }}>
           {insight.action}
         </div>
-        {insight.linked_count > 0 && insight.filter?.search && (
+        {insight.linked.length > 0 && (
           <Link to={linkFor(insight)}>
             <button className="gradient" type="button" style={{ marginTop: 11, fontSize: 11.5 }}>
               See {insight.linked_count} defect{insight.linked_count === 1 ? '' : 's'}

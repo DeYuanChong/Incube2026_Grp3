@@ -183,11 +183,17 @@ def list_issues(
     floor: str | None = None,
     reporter: str | None = None,
     q: str | None = None,
+    id: list[str] | None = Query(None),
     limit: int = Query(50, le=500),
     offset: int = 0,
 ):
     scope = resolve_scope(who)
     stmt = select(Issue)
+    # An explicit id list asks for one named set — the insight cards link this
+    # way, because a card's issues are the ones it counted, not whatever a
+    # location search happens to return. Role scope still applies below.
+    if id:
+        stmt = stmt.where(Issue.id.in_(id))
     if status:
         stmt = stmt.where(Issue.status.in_(status))
     if severity:
