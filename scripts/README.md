@@ -5,7 +5,7 @@ Imports the ITeFM defect export (`raw_data/*.csv`, 2,182 rows covering
 
 | File | Role |
 |---|---|
-| `defect_mapping.py` | Pure CSV → app-model mapping. No DB. Run directly for a mapping-only dry run. |
+| `defect_mapping.py` | Pure CSV → app-model mapping. No DB. Run with a CSV for a mapping-only dry run, with no argument for its self-check. |
 | `import_defects.py` | Reads the CSV, applies the mapping, writes the database. |
 | `check_card_links.py` | End-to-end check that each insight card's "See N defects" link returns exactly those N. Needs the stack up. |
 
