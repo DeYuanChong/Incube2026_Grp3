@@ -67,12 +67,13 @@ def suggest_category(
 
 
 def suggest_description(
-    title: str, category: str | None, location: str | None, existing_text: str | None = None
+    title: str, location: str | None, existing_text: str | None = None
 ) -> dict | None:
-    """Returns {"description": str, "confidence": float} or None."""
+    """Returns {"description", "confidence", "suggested_title", "title_confidence",
+    "suggested_category", "missing_details"} (description/suggested_title
+    independently nullable) or None on failure."""
     prompt = SUGGEST_DESCRIPTION.format(
         title=title,
-        category=category or "not specified",
         location=location or "not specified",
         existing_text=existing_text or "(nothing typed yet)",
     )
@@ -82,11 +83,25 @@ def suggest_description(
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
         )
-        data = _extract_json(resp.choices[0].message.content or "")
-        description = (data or {}).get("description", "").strip()
-        if not description:
+        data = _extract_json(resp.choices[0].message.content or "") or {}
+        description = (data.get("description") or "").strip()
+        suggested_title = (data.get("suggested_title") or "").strip() or None
+        suggested_category = data.get("suggested_category")
+        if not suggested_title or suggested_category not in Category.__members__:
+            suggested_category = None
+        missing_details = [d for d in (data.get("missing_details") or []) if d in ("where", "when")]
+        if not description and not suggested_title and not missing_details:
             return None
-        return {"description": description, "confidence": float(data.get("confidence", 0.5))}
+        return {
+            "description": description or None,
+            "confidence": float(data.get("confidence", 0.5)) if description else None,
+            "suggested_title": suggested_title,
+            "title_confidence": float(data["title_confidence"])
+            if suggested_title and data.get("title_confidence") is not None
+            else None,
+            "suggested_category": Category(suggested_category) if suggested_category else None,
+            "missing_details": missing_details,
+        }
     except Exception:
         log.warning("description suggestion call failed; returning no suggestion", exc_info=True)
         return None

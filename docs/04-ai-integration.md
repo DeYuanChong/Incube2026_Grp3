@@ -105,6 +105,24 @@ user uploads is still processed.
 - **When**: on `POST /issues/{id}/photos` (reporters can attach photos to
   their own report while it is still `status=reported`; stored permanently,
   sharing fixverify's `uploads` docker volume under an `issues/` subfolder).
+  A second, pre-submit entry point exists: `POST /issues/preview-photo-check`
+  runs the identical `ai_client.verify_photo` call against a photo picked in
+  the report form *before the issue exists* — title/description/category are
+  passed as form fields instead of read off a persisted `Issue`, and the file
+  is written to disk only long enough for the AI call, then deleted (nothing
+  is persisted, no `IssuePhoto` row, no majority-vote signal — that only
+  applies once photos are actually attached to a real issue). The frontend
+  calls it as soon as a photo is picked, if the reporter already has a chip
+  or typed description to compare against, and shows any `misaligned`
+  title/description suggestion inline under the description field, styled
+  like the description-autocomplete banner in §7. A photo is checked at most
+  once — dismissing the suggestion (or accepting it) never re-triggers a
+  check for that same photo. The real `POST /issues/{id}/photos` call still
+  re-runs its own verification when the photo is actually uploaded at
+  submit time (unavoidable given the two are separate AI calls against two
+  different code paths — the persisted `ai_suggested_title`/
+  `ai_suggested_description`/`photo_note` on the created `Issue` remain the
+  source of truth, not the pre-submit preview).
 - **Call**: vision model with the image (base64 data URL) + the issue's
   current category/title/description in one joint call. Output:
   `{verdict: aligned|misaligned|inconclusive, confidence, reason,
@@ -133,8 +151,23 @@ user uploads is still processed.
 
 - **When**: `POST /issues/suggest-description`, called while the report form is
   being filled, before the issue exists.
-- **Prompt**: title (+ optional category/location) → a 1-2 sentence draft
-  description + confidence.
+- **Prompt**: title + optional location + `existing_text` (what the reporter
+  has typed so far) → a 1-2 sentence draft/continuation + confidence, **and**
+  independently a `suggested_title`/`title_confidence` when the typed
+  description describes a clearly different defect than the current title
+  says (not just extra detail on the same one) — e.g. a reporter typing
+  about a flooding toilet under a "Lighting — Flickering" title gets back a
+  `suggested_title: "Plumbing — Flooding"` alongside the description
+  continuation. `category` is deliberately **not** passed into the prompt —
+  a continuation could otherwise lean on category-flavored phrasing instead
+  of staying anchored to the reporter's own typed words, which defeats the
+  point of an autocomplete on their own text (`category` still exists on the
+  request schema for forward compatibility but is unused by the prompt).
+  The two suggestions are accepted/dismissed independently in the UI; an
+  accepted title becomes a `titleOverride` that wins over whatever the
+  category/chip combination would otherwise have built (see §6's
+  `preview-photo-check`, which sets the same override) — picking a chip
+  explicitly always clears it back.
 - **Policy**: suggestion only — the frontend offers accept/dismiss, never
   auto-fills. On AI failure, timeout, or an unusably vague title, the
   endpoint returns `description: null` with HTTP 200 so the form is never

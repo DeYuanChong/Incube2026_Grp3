@@ -25,7 +25,7 @@ export const ROUTES = [
     path: '/report',
     label: 'Report Issue',
     title: 'Report an issue',
-    sub: 'AI categorisation and an ETA on submission',
+    sub: 'AI categorisation on submission',
     roles: ['reporter'],
   },
   {

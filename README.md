@@ -14,7 +14,7 @@ powered by a self-hosted OpenAI-compatible vLLM endpoint.
 | Component | Port | Responsibility |
 |---|---|---|
 | `services/gateway` | 8000 | API gateway (routes `/api/*` to services) + webhook event fan-out |
-| `services/reporting` | 8001 | Issue intake, smart categorization, ETA estimation, issue lifecycle (source of truth) |
+| `services/reporting` | 8001 | Issue intake, smart categorization, issue lifecycle (source of truth) |
 | `services/triage` | 8002 | Severity/urgency suggestion, duplicate detection, systemic-fault analytics, MTBF/MTTR |
 | `services/fixverify` | 8003 | Work orders, proof-of-work upload, AI relevance verification, human verification |
 | `services/notification` | 8004 | In-app notification inbox, driven by events |

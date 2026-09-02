@@ -189,9 +189,6 @@ def map_row(row: dict, reporter_name: str) -> tuple[dict, dict]:
         # distinct), so the export contains no duplicate groups to carry over.
         "duplicate_group_id": None,
         "duplicate_count": 1,
-        # Historical rows carry no forward-looking ETA.
-        "estimated_resolution_days": None,
-        "estimate_basis": None,
         # Source Resolution Type is 90% blank and 227/231 of the rest are
         # "Others" — not worth mapping onto the app's enum.
         "resolution_type": None,

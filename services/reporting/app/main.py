@@ -4,14 +4,20 @@ from datetime import datetime, timedelta, timezone
 import os
 import uuid
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import or_, text
-from sqlmodel import Session, func, select
-
-from . import ai_client, config, events
 from fastapi.responses import FileResponse
-from sqlalchemy import text
+from sqlalchemy import or_, text
 from sqlmodel import Session, func, select
 
 from . import ai_client, config, events
@@ -22,6 +28,7 @@ from .schemas import (
     CloseRequest,
     IssueCreate,
     IssueUpdate,
+    PhotoPreviewResponse,
     StatusChange,
     SuggestDescriptionRequest,
     SuggestDescriptionResponse,
@@ -164,12 +171,35 @@ def suggest_description(body: SuggestDescriptionRequest):
     location = None
     if body.building:
         location = body.building + (f" / {body.floor}" if body.floor else "")
-    suggestion = ai_client.suggest_description(
-        body.title, body.category.value if body.category else None, location, body.existing_text,
-    )
+    suggestion = ai_client.suggest_description(body.title, location, body.existing_text)
     if not suggestion:
         return SuggestDescriptionResponse(description=None, confidence=None)
     return SuggestDescriptionResponse(**suggestion)
+
+
+@app.post("/issues/preview-photo-check", response_model=PhotoPreviewResponse)
+def preview_photo_check(
+    category: Category = Form(...),
+    title: str = Form(...),
+    description: str = Form(""),
+    file: UploadFile = File(...),
+):
+    """Runs the same vision check `POST /issues/{id}/photos` runs, but before
+    the issue exists — lets the report form surface a title/description
+    suggestion inline, pre-submit (docs/04-ai-integration.md §7). Nothing is
+    persisted: the file is written only long enough for the AI call and then
+    removed."""
+    if not (file.content_type or "").startswith("image/"):
+        raise HTTPException(422, "file must be an image")
+    ext = os.path.splitext(file.filename or "")[1] or ".jpg"
+    path = os.path.join(config.UPLOAD_DIR, f"preview-{uuid.uuid4()}{ext}")
+    with open(path, "wb") as out:
+        out.write(file.file.read())
+    try:
+        result = ai_client.verify_photo(path, category.value, title, description)
+    finally:
+        os.remove(path)
+    return PhotoPreviewResponse(**result)
 
 
 @app.get("/issues")

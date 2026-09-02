@@ -26,7 +26,7 @@ src/
   pages/
     Dashboard.jsx         Defects Management: KPI tiles, filter chips, grid table
     AiInsights.jsx        recommendation cards from /analytics/insights (admin)
-    ReportIssue.jsx       submission, with the AI category suggestion + ETA
+    ReportIssue.jsx       submission, with the AI category suggestion
     IssueDetail.jsx       one issue and its timeline
     TriageBoard.jsx       triage queue, systemic findings, MTBF/MTTR (admin)
     FixVerify.jsx         work orders and proof of work (maintenance/admin)
@@ -43,7 +43,7 @@ variant of a table header.
 |---|---|---|---|
 | Defects Management | `/` | all | Four KPI tiles from `GET /stats/dashboard`, four rows of filter chips, and a grid table with age vs SLA. Breached rows are tinted and carry a nudge banner. |
 | AI insights | `/insights` | admin | Systemic / predictive / pre-emptive cards from `GET /analytics/insights`, as cards or a briefing feed. Each card links back to the issues behind it. |
-| Report Issue | `/report` | reporter | AI re-categorization suggestion + ETA on submission. |
+| Report Issue | `/report` | reporter | AI re-categorization suggestion on submission. |
 | Defect detail | `/issues/:id` | all | Issue, triage result and timeline. |
 | Triage board | `/triage` | admin | Queue with confirm/override, systemic clusters, MTBF/MTTR by group. |
 | Fix & Verify | `/fix-verify` | maintenance, admin | Work orders, evidence recommendation, proof upload and human verification. |

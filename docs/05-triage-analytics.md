@@ -522,7 +522,7 @@ flowchart TD
     E --> F[LLM severity/urgency suggestion<br/>+ equipment extraction]
     F --> G[Apply hard rules<br/>duplicates bump severity, security ≥ urgent, hazard keywords → emergency]
     G --> H[Store triage_result]
-    H --> I[POST triage-result to reporting<br/>status → triaged, ETA recomputed]
+    H --> I[POST triage-result to reporting<br/>status → triaged]
     I --> J[reporting emits issue.triaged]
     E --> K{cluster newly systemic?<br/>no recommendation yet}
     K -- yes --> L[LLM writes cluster recommendation]

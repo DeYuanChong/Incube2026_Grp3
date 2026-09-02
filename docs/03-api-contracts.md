@@ -11,10 +11,8 @@ service-local. Gateway mapping: `/api/reporting/*→:8001/*`, `/api/triage/*→:
 
 | Method & path | Purpose |
 |---|---|
-| `POST /issues` | Create issue. Body: `{category, title, description, building, floor, room?, equipment_name?}`. Runs AI categorization + ETA. Returns the issue incl. `ai_suggested_category` and `estimated_resolution_days`. Emits `issue.created`. |
-| `GET /issues` | List. Filters: `status` (repeatable), `severity` (repeatable, `untriaged` matches an unset severity), `category`, `building`, `floor`, `reporter`, `q` (text), `id` (repeatable — exactly these issues, how the insight cards link their evidence), `limit`, `offset`. **Role-scoped** from `X-Role`/`X-User` on top of those filters: a reporter sees only issues they reported, maintenance only `in_progress`/`pending_verification`/`verified`/`closed`/`cancelled`, admin everything. |
 | `POST /issues` | Create issue. Body: `{category, title, description?, building, floor, room?, equipment_name?, mobile_number, ack_confirmed}`. `description` is optional; `ack_confirmed` must be `true` (422 otherwise). Runs AI categorization. Returns the issue incl. `ai_suggested_category`. Emits `issue.created`. |
-| `GET /issues` | List. Filters: `status`, `category`, `building`, `floor`, `reporter`, `q` (text), `limit`, `offset`. |
+| `GET /issues` | List. Filters: `status` (repeatable), `severity` (repeatable, `untriaged` matches an unset severity), `category`, `building`, `floor`, `reporter`, `q` (text), `id` (repeatable — exactly these issues, how the insight cards link their evidence), `limit`, `offset`. **Role-scoped** from `X-Role`/`X-User` on top of those filters: a reporter sees only issues they reported, maintenance only `in_progress`/`pending_verification`/`verified`/`closed`/`cancelled`, admin everything. |
 | `GET /issues/{id}` | Full issue + timeline (`issue_events`). |
 | `PATCH /issues/{id}` | Reporter edits (title/description/location) while `status=reported`. |
 | `POST /issues/{id}/accept-suggested-category` | Reporter accepts the AI category (`category_source=ai_accepted`). |
@@ -22,11 +20,13 @@ service-local. Gateway mapping: `/api/reporting/*→:8001/*`, `/api/triage/*→:
 | `POST /issues/{id}/accept-suggested-description` | Reporter accepts the photo-derived description suggestion. |
 | `POST /issues/{id}/photos` | Multipart `file`. Only while `status=reported`. Runs vision verification against the issue's current category/title/description (docs/04 §7); recomputes `ai_suggested_category`/`ai_suggested_title`/`ai_suggested_description`/`photo_note` across all of the issue's photos. Emits `issue.photo_uploaded`. |
 | `GET /issues/{id}/photos/{photo_id}/file` | Serve an uploaded photo. |
+| `POST /issues/suggest-description` | Body: `{title, category?, building?, floor?, existing_text?}`. Pre-submit description autocomplete + title-mismatch check (docs/04 §7). Returns `{description?, confidence?, suggested_title?, title_confidence?}`, all independently nullable. Suggestion-only, never blocks the form. |
+| `POST /issues/preview-photo-check` | Multipart `category, title, description?, file`. Pre-submit vision check (docs/04 §6) — same call as `POST /issues/{id}/photos` but before the issue exists; nothing persisted. Returns `{verdict, confidence, reason, suggested_category?, suggested_title?, suggested_description?}`. |
 | `POST /issues/{id}/triage-result` | **Internal (triage svc)**: `{severity, urgency, equipment_name?, duplicate_group_id?, duplicate_count?, is_critical_system?}` → status `triaged`, emits `issue.triaged` timeline entry. |
 | `POST /issues/{id}/status` | Transition: `{status, actor, detail?}`. Validated against the state machine. Emits `issue.status_changed`. |
 | `POST /issues/{id}/close` | `{closed_by: reporter\|auto\|admin, resolution_type?, resolution_notes?}` from `verified`. Emits `issue.closed`. |
 | `POST /issues/{id}/cancel` | `{reason}` while `reported`. |
-| `GET /stats/load` | `{open_count, open_by_severity}` — feeds the ETA estimator's load factor. |
+| `GET /stats/load` | `{open_count, open_by_severity}`. |
 | `GET /stats/dashboard` | Role-scoped KPI aggregates behind the dashboard tiles, over the caller's whole scoped population: `{scope, sla_breach_days, total_count, open_count, open_by_severity, open_by_status, open_by_category, sla: {breached, within, breach_rate}, age_buckets, duplicates, month}`. `?month=YYYY-MM` (default: current) selects the window for `month`, which carries `{key, closed, cancelled, verified, repaired, avg_mttr_days, avg_mttc_days, median_repair_days, prev_key, prev_avg_mttr_days, mttr_delta_days}`. Durations are `null`, never `0`, when the set is empty. **SLA breach** = open longer than `SLA_BREACH_DAYS` (30) and not yet `pending_verification`, `verified`, `closed` or `cancelled` — mirrored client-side in `frontend/src/lib/format.js`. |
 
 ## Triage service (:8002)
