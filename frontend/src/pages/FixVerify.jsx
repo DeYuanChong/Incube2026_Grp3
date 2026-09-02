@@ -78,8 +78,7 @@ function WorkOrderCard({ wo, onChanged }) {
           <tbody>
             {detail.proofs.map((proof) => (
               <tr key={proof.id}>
-                <td><a href={`${import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8000'}/api/fixverify/proofs/${proof.id}/file`}
-                       target="_blank" rel="noreferrer">view file</a>
+                <td><a href={api.proofFileUrl(proof.id)} target="_blank" rel="noreferrer">view file</a>
                   <span className="hint"> by {proof.uploaded_by}</span></td>
                 <td>{proof.ai_verdict} <span className="hint">{proof.ai_reason}</span></td>
                 <td>{proof.human_verdict || '—'}</td>

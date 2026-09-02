@@ -96,6 +96,7 @@ export const api = {
     if (note) formData.append('note', note)
     return request(`/api/fixverify/work-orders/${id}/proofs`, { method: 'POST', formData })
   },
+  proofFileUrl: (proofId) => `${GATEWAY}/api/fixverify/proofs/${proofId}/file`,
   humanVerify: (proofId, approved, notes) =>
     request(`/api/fixverify/proofs/${proofId}/human-verify`, {
       method: 'POST', body: { approved, notes },
