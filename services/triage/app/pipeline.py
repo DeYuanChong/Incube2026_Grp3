@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from sqlalchemy import text
+from sqlalchemy import or_, text
 from sqlmodel import Session, select
 
 from . import ai_client, config, grouping, payload
@@ -44,7 +44,9 @@ def sync_issue_fact(session: Session, issue: dict) -> IssueFact:
     return fact
 
 
-def _find_duplicate(session: Session, fact: IssueFact) -> tuple[str | None, float, int]:
+def _find_duplicate(
+    session: Session, fact: IssueFact, as_of: str | None = None
+) -> tuple[str | None, float, int]:
     """Heuristic candidates (same category+building+floor, recent, open), ranked
     by pg_trgm description similarity so the LLM confirms the closest few first.
     Returns (duplicate_of_issue_id, confidence, group_size).
@@ -54,10 +56,22 @@ def _find_duplicate(session: Session, fact: IssueFact) -> tuple[str | None, floa
     reporting as `duplicate_count`, so it has to count duplicates and not the
     pre-filter's pool. The no-duplicate path already scanned all five; only the
     found-early case loses its short-circuit.
+
+    `as_of` replays the issue at the moment it arrived instead of now: the
+    window ends at its own `created_at`, only earlier issues are candidates, and
+    "open" is judged by whether the candidate had closed *by then*. Live triage
+    passes nothing and keeps the wall-clock behaviour. Without it a backfill
+    compares a 2025 report against last week's tickets and finds nothing.
     """
-    cutoff = (
-        datetime.now(timezone.utc) - timedelta(days=config.DUPLICATE_WINDOW_DAYS)
-    ).isoformat()
+    anchor = datetime.fromisoformat(as_of) if as_of else datetime.now(timezone.utc)
+    cutoff = (anchor - timedelta(days=config.DUPLICATE_WINDOW_DAYS)).isoformat()
+    still_open = (
+        # closed_at is the only timestamp that says *when* a status was reached,
+        # so it is what a historical "was this open then" can be asked against.
+        or_(IssueFact.closed_at.is_(None), IssueFact.closed_at > as_of)  # type: ignore[union-attr]
+        if as_of else
+        IssueFact.status.notin_(["closed", "cancelled"])  # type: ignore[attr-defined]
+    )
     candidates = session.exec(
         select(IssueFact).where(
             IssueFact.category == fact.category,
@@ -65,7 +79,8 @@ def _find_duplicate(session: Session, fact: IssueFact) -> tuple[str | None, floa
             IssueFact.floor == fact.floor,
             IssueFact.issue_id != fact.issue_id,
             IssueFact.created_at >= cutoff,
-            IssueFact.status.notin_(["closed", "cancelled"]),  # type: ignore[attr-defined]
+            *([IssueFact.created_at < as_of] if as_of else []),
+            still_open,
         ).order_by(
             text("similarity(description, :d) DESC").bindparams(d=fact.description)
         ).limit(5)
@@ -83,29 +98,36 @@ def _find_duplicate(session: Session, fact: IssueFact) -> tuple[str | None, floa
     return grouping.pick_primary(confirmed)
 
 
-def _cluster_members(session: Session, fact: IssueFact) -> list[IssueFact]:
+def _cluster_members(
+    session: Session, fact: IssueFact, as_of: str | None = None
+) -> list[IssueFact]:
     """Issues sharing this issue's cluster key, inside the systemic window.
 
     Asked fresh on every call, so it is a live view: the window slides, and a
     cluster flagged months ago reports the members it has now rather than the
     count it was flagged on. `SystemicCluster.issue_count` keeps that number.
+
+    `as_of` ends the window at the issue being replayed rather than at now, so a
+    backfill flags a cluster on the members it actually had at the time.
     """
-    cutoff = (
-        datetime.now(timezone.utc) - timedelta(days=config.SYSTEMIC_WINDOW_DAYS)
-    ).isoformat()
+    anchor = datetime.fromisoformat(as_of) if as_of else datetime.now(timezone.utc)
+    cutoff = (anchor - timedelta(days=config.SYSTEMIC_WINDOW_DAYS)).isoformat()
     return list(session.exec(
         select(IssueFact).where(
             IssueFact.category == fact.category,
             IssueFact.building == fact.building,
             IssueFact.floor == fact.floor,
             IssueFact.created_at >= cutoff,
+            *([IssueFact.created_at <= as_of] if as_of else []),
         ).order_by(IssueFact.created_at)  # type: ignore[arg-type]
     ).all())
 
 
-def _systemic_check(session: Session, fact: IssueFact) -> SystemicCluster | None:
+def _systemic_check(
+    session: Session, fact: IssueFact, as_of: str | None = None
+) -> SystemicCluster | None:
     key = _cluster_key(fact)
-    members = _cluster_members(session, fact)
+    members = _cluster_members(session, fact, as_of)
     if len(members) < config.SYSTEMIC_MIN_COUNT:
         return None
     cluster = session.exec(
@@ -182,26 +204,43 @@ def run_triage(session: Session, issue_id: str) -> TriageResult:
     resp = httpx.get(f"{config.REPORTING_URL}/issues/{issue_id}", timeout=10)
     resp.raise_for_status()
     issue = resp.json()["issue"]
-
     fact = sync_issue_fact(session, issue)
-    duplicate_of, dup_confidence, dup_count = _find_duplicate(session, fact)
+    return triage_fact(session, fact, issue.get("title", ""))
+
+
+def triage_fact(
+    session: Session,
+    fact: IssueFact,
+    title: str,
+    as_of: str | None = None,
+    write_back: bool = True,
+) -> TriageResult:
+    """Triage one already-synced fact.
+
+    Split out of `run_triage` so a historical replay (`scripts/backfill_triage.py`)
+    runs the same duplicate detection, systemic check and hard rules rather than
+    a second copy of them that drifts. `as_of` anchors both windows to the issue
+    instead of to now; `write_back=False` leaves reporting alone, which is what a
+    backfill of 2,182 closed issues wants — their severity is already history.
+    """
+    duplicate_of, dup_confidence, dup_count = _find_duplicate(session, fact, as_of)
     # Mirror what the write-back below is about to tell reporting. Reporting is
     # still the writer of record, but it publishes nothing on the write-back
     # that comes back here, so the snapshot would carry a null duplicate link
     # until the issue's next status change — and profiles() counts this column.
     fact.duplicate_group_id = duplicate_of
-    cluster = _systemic_check(session, fact)
+    cluster = _systemic_check(session, fact, as_of)
 
     location = f"{fact.building} / {fact.floor}" + (f" / {fact.room}" if fact.room else "")
     suggestion = ai_client.suggest_severity(
-        fact.category, issue.get("title", ""), fact.description, location,
+        fact.category, title, fact.description, location,
         duplicate_count=dup_count,
         systemic_count=cluster.issue_count if cluster else 0,
     )
     suggestion = _apply_hard_rules(suggestion, fact, dup_count)
 
     result = TriageResult(
-        issue_id=issue_id,
+        issue_id=fact.issue_id,
         suggested_severity=suggestion["severity"],
         suggested_urgency=suggestion["urgency"],
         severity_rationale=suggestion["rationale"],
@@ -215,10 +254,13 @@ def run_triage(session: Session, issue_id: str) -> TriageResult:
     session.commit()
     session.refresh(result)
 
+    if not write_back:
+        return result
+
     # Write back to reporting (single writer of issue state)
     try:
         httpx.post(
-            f"{config.REPORTING_URL}/issues/{issue_id}/triage-result",
+            f"{config.REPORTING_URL}/issues/{fact.issue_id}/triage-result",
             json={
                 "severity": result.suggested_severity,
                 "urgency": result.suggested_urgency,
