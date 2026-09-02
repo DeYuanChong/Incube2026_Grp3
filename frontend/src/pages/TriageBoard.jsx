@@ -4,18 +4,23 @@ import { api } from '../api'
 
 export default function TriageBoard() {
   const [issues, setIssues] = useState([])
-  const [systemic, setSystemic] = useState([])
-  const [metrics, setMetrics] = useState(null)
-  const [groupBy, setGroupBy] = useState('category')
+  const [overview, setOverview] = useState(null)
+  const [groupBy, setGroupBy] = useState('location')
 
   const refresh = () => {
     api.listIssues({ status: 'reported' }).then((reported) =>
       api.listIssues({ status: 'triaged' }).then((triaged) =>
         setIssues([...reported, ...triaged])))
-    api.systemic().then(setSystemic).catch(() => {})
   }
   useEffect(refresh, [])
-  useEffect(() => { api.metrics(groupBy).then(setMetrics).catch(() => {}) }, [groupBy])
+  // One call for both panels below: the analytics output is a single GET, and
+  // `by` is the only thing that changes when the grouping does.
+  useEffect(() => {
+    api.triageOverview(groupBy).then(setOverview).catch(() => setOverview(null))
+  }, [groupBy])
+
+  const systemic = overview?.systemic || []
+  const profiles = overview?.profiles || []
 
   const rerun = async (id) => { await api.runTriage(id); refresh() }
   const confirm = async (id) => { await api.confirmTriage(id, {}); refresh() }
@@ -53,40 +58,51 @@ export default function TriageBoard() {
         {systemic.length === 0 && <p className="hint">No systemic clusters flagged yet.</p>}
         {systemic.map((cluster) => (
           <div key={cluster.id} className="suggestion">
-            <strong>{cluster.cluster_key.replaceAll('|', ' · ')}</strong> — {cluster.issue_count} issues
+            <strong>{cluster.cluster_key.replaceAll('|', ' · ')}</strong>
+            {' — '}{cluster.issue_count_live} issues in the window
+            {!cluster.active && <span className="hint"> · no longer accruing</span>}
             <br />
             <span className="hint">{cluster.recommendation || 'Generating recommendation…'}</span>
           </div>
         ))}
       </div>
 
+      {/* Profiles, not MTBF/MTTR: raw metrics are generated elsewhere and the
+          endpoint serves the backlog shape plus the findings over it (docs/05).
+          Every rate here is labelled with the window it is taken over, because
+          `total` and `recent` answer different questions. */}
       <div className="card">
-        <h3>Metrics</h3>
+        <h3>Location profiles</h3>
         <label>Group by </label>
         <select style={{ width: 160 }} value={groupBy} onChange={(e) => setGroupBy(e.target.value)}>
+          <option value="location">location</option>
           <option value="category">category</option>
-          <option value="building">building</option>
-          <option value="floor">floor</option>
           <option value="equipment">equipment</option>
         </select>
-        {metrics && (
+        {profiles.length > 0 && (
           <table>
-            <thead><tr><th>Group</th><th>MTBF (days)</th><th>MTTR (days)</th></tr></thead>
+            <thead>
+              <tr>
+                <th>Group</th><th>Issues</th><th>Open</th>
+                <th>Last {profiles[0].window_days}d</th><th>Trend</th><th>Repeats</th>
+              </tr>
+            </thead>
             <tbody>
-              {[...new Set([...metrics.mtbf, ...metrics.mttr].map((r) => r.group))].map((group) => {
-                const mtbfRow = metrics.mtbf.find((r) => r.group === group)
-                const mttrRow = metrics.mttr.find((r) => r.group === group)
-                return (
-                  <tr key={group}>
-                    <td>{group}</td>
-                    <td>{mtbfRow?.mtbf_days ?? '—'}</td>
-                    <td>{mttrRow?.mttr_days ?? '—'}</td>
-                  </tr>
-                )
-              })}
+              {profiles.map((row) => (
+                <tr key={row.group}>
+                  <td>{row.group.replaceAll('|', ' · ')}</td>
+                  <td>{row.total}</td>
+                  <td>{row.open}</td>
+                  <td>{row.recent}</td>
+                  {/* null is "no prior window to compare against", not 0% */}
+                  <td>{row.trend_pct === null ? '—' : `${row.trend_pct > 0 ? '+' : ''}${row.trend_pct}%`}</td>
+                  <td>{row.repeat_rate === null ? '—' : `${Math.round(row.repeat_rate * 100)}%`}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}
+        {overview && profiles.length === 0 && <p className="hint">No issues in the snapshot yet.</p>}
       </div>
     </>
   )
