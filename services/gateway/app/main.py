@@ -78,7 +78,12 @@ async def proxy(service: str, path: str, request: Request):
         upstream = await client.request(
             request.method,
             f"{base}/{path}",
-            params=request.query_params,
+            # multi_items(), not the QueryParams mapping: httpx reads a mapping
+            # one value per key, so `?status=a&status=b` reached the service as
+            # `status=b`. Every repeatable filter downstream (`status`,
+            # `severity`, `id`) is silently truncated to its last value without
+            # this, which is only invisible while callers send one of each.
+            params=request.query_params.multi_items(),
             content=await request.body(),
             headers=headers,
         )

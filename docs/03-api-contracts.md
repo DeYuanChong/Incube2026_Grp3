@@ -12,7 +12,7 @@ service-local. Gateway mapping: `/api/reporting/*→:8001/*`, `/api/triage/*→:
 | Method & path | Purpose |
 |---|---|
 | `POST /issues` | Create issue. Body: `{category, title, description, building, floor, room?, equipment_name?}`. Runs AI categorization + ETA. Returns the issue incl. `ai_suggested_category` and `estimated_resolution_days`. Emits `issue.created`. |
-| `GET /issues` | List. Filters: `status` (repeatable), `severity` (repeatable, `untriaged` matches an unset severity), `category`, `building`, `floor`, `reporter`, `q` (text), `limit`, `offset`. **Role-scoped** from `X-Role`/`X-User` on top of those filters: a reporter sees only issues they reported, maintenance only `in_progress`/`pending_verification`/`verified`/`closed`/`cancelled`, admin everything. |
+| `GET /issues` | List. Filters: `status` (repeatable), `severity` (repeatable, `untriaged` matches an unset severity), `category`, `building`, `floor`, `reporter`, `q` (text), `id` (repeatable — exactly these issues, how the insight cards link their evidence), `limit`, `offset`. **Role-scoped** from `X-Role`/`X-User` on top of those filters: a reporter sees only issues they reported, maintenance only `in_progress`/`pending_verification`/`verified`/`closed`/`cancelled`, admin everything. |
 | `POST /issues` | Create issue. Body: `{category, title, description?, building, floor, room?, equipment_name?, mobile_number, ack_confirmed}`. `description` is optional; `ack_confirmed` must be `true` (422 otherwise). Runs AI categorization. Returns the issue incl. `ai_suggested_category`. Emits `issue.created`. |
 | `GET /issues` | List. Filters: `status`, `category`, `building`, `floor`, `reporter`, `q` (text), `limit`, `offset`. |
 | `GET /issues/{id}` | Full issue + timeline (`issue_events`). |
