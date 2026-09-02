@@ -1,5 +1,5 @@
 // AI insights, ported from the canvas mock's second screen against
-// GET /api/triage/analytics/insights.
+// GET /api/triage, which returns the whole analytics output in one call.
 //
 // Two things the mock showed are absent by design: a per-card confidence score
 // and an "avoidable spend" figure. Nothing in the system produces either, so
@@ -29,16 +29,19 @@ const linkFor = (insight) => {
 
 export default function AiInsights() {
   const [insights, setInsights] = useState(null)
-  const [metrics, setMetrics] = useState(null)
+  const [total, setTotal] = useState(0)
   const [error, setError] = useState(null)
   const [kind, setKind] = useState('All')
   const [view, setView] = useState('cards')
 
+  // One call for the page. The endpoint serves findings rather than raw
+  // metrics, so the hero's worst-MTBF figure comes off the cards themselves
+  // instead of a second request that no longer exists.
   const load = useCallback(() => {
     setError(null)
-    api.insights().then(setInsights).catch((err) => { setInsights([]); setError(err) })
-    // The worst-MTBF group in the hero strip; failure is non-fatal to the page.
-    api.metrics('equipment').then(setMetrics).catch(() => {})
+    api.triageOverview()
+      .then((data) => { setInsights(data.insights); setTotal(data.insight_count) })
+      .catch((err) => { setInsights([]); setError(err) })
   }, [])
 
   useEffect(load, [load])
@@ -50,7 +53,13 @@ export default function AiInsights() {
 
   const active = (insights || []).filter((i) => i.active)
   const linkedTotal = active.reduce((sum, i) => sum + i.linked_count, 0)
-  const worstMtbf = metrics?.mtbf?.find((row) => row.group !== '(unspecified)')
+  // Cards arrive ranked worst-first and an mtbf card scores on how far below
+  // the threshold it sits, so the first one is the worst asset. It already
+  // carries the number that raised it.
+  const worstMtbf = (insights || [])
+    .filter((i) => i.source === 'mtbf')
+    .map((i) => i.evidence.find((e) => e.label === 'MTBF')?.value)
+    .find(Boolean)
 
   return (
     <div className="stack">
@@ -76,6 +85,11 @@ export default function AiInsights() {
                 ? 'No live patterns to act on right now'
                 : `${active.length} pattern${active.length === 1 ? '' : 's'} worth acting on before they generate more tickets`}
           </div>
+          {total > (insights || []).length && (
+            <div style={{ fontSize: 12, marginTop: 6, opacity: 0.75 }}>
+              Showing the {(insights || []).length} highest-ranked of {total} findings.
+            </div>
+          )}
           <div style={{ fontSize: 12.5, lineHeight: 1.55, marginTop: 8, opacity: 0.9 }}>
             Drawn from repeat-report clustering, MTBF by asset, 30-day location
             trends and vendor proof history. Every number links back to the
@@ -85,10 +99,7 @@ export default function AiInsights() {
         <div style={{ display: 'flex', gap: 18, flex: '0 0 auto' }}>
           <HeroStat value={active.length} label="Live signals" />
           <HeroStat value={linkedTotal} label="Linked defects" />
-          <HeroStat
-            value={worstMtbf ? `${Math.round(worstMtbf.mtbf_days)}d` : '—'}
-            label="Worst MTBF"
-          />
+          <HeroStat value={worstMtbf || '—'} label="Worst MTBF" />
         </div>
       </div>
 

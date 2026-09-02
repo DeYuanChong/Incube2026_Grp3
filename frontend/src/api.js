@@ -80,7 +80,11 @@ export const api = {
   metrics: (groupBy = 'category') => request(`/api/triage/analytics/metrics?group_by=${groupBy}`),
   profiles: (by = 'location') => request(`/api/triage/analytics/profiles?by=${by}`),
   vendorPerformance: () => request('/api/triage/analytics/vendor-performance'),
-  insights: () => request('/api/triage/analytics/insights'),
+  // One GET returns the whole analytics output — systemic, profiles,
+  // vendor_performance and the ranked insight cards (docs/05).
+  triageOverview: (by = 'location') => request(`/api/triage?${qs({ by })}`),
+  // Kept for the sidebar badge, which wants the cards and nothing else.
+  insights: () => request('/api/triage').then((d) => d.insights),
 
   // fix & verify
   listWorkOrders: (params = {}) =>
