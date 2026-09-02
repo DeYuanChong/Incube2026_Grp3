@@ -249,7 +249,10 @@ a:hover { color: var(--accent-deep); }
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 17px 18px;
 }
-.detail-card > h3 { font-size: 13.5px; font-weight: 600; margin: 0 0 13px; }
+/* Descendant, not child: the Triage and Timeline headings sit inside a flex
+   row alongside a caption, so `>` skipped them and they fell back to the
+   browser's default h3 size. */
+.detail-card h3 { font-size: 13.5px; font-weight: 600; margin: 0 0 13px; }
 .detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .detail-title { font-size: 20px; font-weight: 600; letter-spacing: -0.4px; margin: 8px 0 0; }
 .detail-meta { font-size: 12.5px; color: var(--muted); margin-top: 6px; }

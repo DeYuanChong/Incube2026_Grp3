@@ -6,20 +6,20 @@ import { initials } from '../lib/tokens'
 
 export const ROUTES = [
   {
-    path: '/',
-    label: 'Defects Management',
-    title: 'Defects Management',
-    sub: 'Live queue, ageing and SLA',
-    roles: ['reporter', 'maintenance', 'admin'],
-    badge: 'open',
-  },
-  {
     path: '/insights',
     label: 'AI insights',
     title: 'AI insights',
     sub: 'Systemic, predictive and pre-emptive signals',
     roles: ['admin'],
     badge: 'insights',
+  },
+  {
+    path: '/',
+    label: 'Defects Management',
+    title: 'Defects Management',
+    sub: 'Live queue, ageing and SLA',
+    roles: ['reporter', 'maintenance', 'admin'],
+    badge: 'open',
   },
   {
     path: '/report',
@@ -42,7 +42,7 @@ const DETAIL = { title: 'Defect detail', sub: 'Triage, verification and history'
 
 export function screenFor(pathname) {
   if (pathname.startsWith('/issues/')) return DETAIL
-  return ROUTES.find((r) => r.path === pathname) || ROUTES[0]
+  return ROUTES.find((r) => r.path === pathname) || ROUTES.find((r) => r.path === '/')
 }
 
 const ROLE_LABEL = { reporter: 'Reporter', maintenance: 'Maintenance', admin: 'Admin, CPS' }

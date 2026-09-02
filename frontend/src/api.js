@@ -73,7 +73,8 @@ export const api = {
 
   // triage
   triageResult: (issueId) => request(`/api/triage/results/${issueId}`),
-  runTriage: (issueId) => request(`/api/triage/run/${issueId}`, { method: 'POST' }),
+  // Body is {severity, urgency}; either may be null to mean "no override,
+  // take the AI's suggestion". Sets admin_confirmed either way.
   confirmTriage: (issueId, data) =>
     request(`/api/triage/results/${issueId}/confirm`, { method: 'POST', body: data }),
   // One GET returns the whole analytics output — systemic, profiles,

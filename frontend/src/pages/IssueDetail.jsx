@@ -25,6 +25,7 @@ import {
   categoryLabel,
   eventLabel,
   eventTone,
+  sev,
   statusLabel,
   workOrderLabel,
 } from '../lib/tokens'
@@ -33,6 +34,14 @@ import {
 // server decides the bump; this side just explains one that already happened.
 const DUPLICATE_BUMP_THRESHOLD = 3
 const DUPLICATE_WINDOW_DAYS = 14
+
+// The enums the override writes into (services/reporting/app/models.py:69-70).
+// Ordered low → high so the select reads as a scale.
+const SEVERITY_OPTIONS = ['low', 'medium', 'high', 'critical']
+const URGENCY_OPTIONS = ['routine', 'urgent', 'emergency']
+
+// tokens.js has no urgency vocabulary — the three values are already prose.
+const urgencyLabel = (value) => value.charAt(0).toUpperCase() + value.slice(1)
 
 const TIMELINE_COLLAPSED = 3
 const SLA_TONE = { danger: 'var(--danger)', warn: 'var(--warn)', muted: 'var(--muted-2)' }
@@ -151,16 +160,6 @@ export default function IssueDetail() {
           </div>
 
           <div className="detail-actions">
-            {role === 'admin' && (
-              <button className="ghost" disabled={busy} onClick={() => run(() => api.runTriage(issue.id))}>
-                {triage ? 'Re-run AI triage' : 'Run AI triage'}
-              </button>
-            )}
-            {role === 'admin' && triage && !triage.admin_confirmed && (
-              <button className="secondary" disabled={busy} onClick={() => run(() => api.confirmTriage(issue.id, {}))}>
-                Confirm triage
-              </button>
-            )}
             {role === 'maintenance' && canStart && (
               <button disabled={busy} onClick={() => run(() => api.startWorkOrder(workOrder.id, user))}>
                 Start work
@@ -228,7 +227,13 @@ export default function IssueDetail() {
             onAccept={(fn) => run(fn)}
             busy={busy}
           />
-          <Triage issue={issue} triage={triage} />
+          <Triage
+            issue={issue}
+            triage={triage}
+            role={role}
+            busy={busy}
+            onSave={(body) => run(() => api.confirmTriage(issue.id, body))}
+          />
           <FixVerify
             workOrder={workOrder}
             proofs={proofs}
@@ -383,14 +388,14 @@ function Suggestion({ children, onAccept, onDismiss, acceptLabel, dismissLabel, 
   )
 }
 
-function Triage({ issue, triage }) {
+function Triage({ issue, triage, role, busy, onSave }) {
   if (!triage) {
     return (
       <div className="detail-card">
         <h3>Triage</h3>
         <EmptyState
           title="Not triaged yet"
-          hint="Triage runs automatically when the issue is reported. An admin can start it from the button above."
+          hint="Triage runs automatically when the issue is reported."
         />
       </div>
     )
@@ -401,12 +406,7 @@ function Triage({ issue, triage }) {
 
   return (
     <div className="detail-card">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 13 }}>
-        <h3 style={{ margin: 0 }}>Triage</h3>
-        <div style={{ fontSize: 11, color: 'var(--muted-2)' }}>
-          {triage.admin_confirmed ? 'Confirmed by an admin' : 'AI suggestion — not yet confirmed'}
-        </div>
-      </div>
+      <h3>Triage</h3>
 
       <div className="field-grid">
         <AiField
@@ -472,6 +472,79 @@ function Triage({ issue, triage }) {
           </div>
         </div>
       )}
+
+      {role === 'admin' && <TriageOverride triage={triage} busy={busy} onSave={onSave} />}
+    </div>
+  )
+}
+
+/** Admin edit of the AI's severity and urgency.
+ *
+ *  Always sends both fields: the confirm endpoint assigns each override column
+ *  straight from the request body (services/triage/app/main.py:70), so posting
+ *  one alone would blank the other. A value equal to the AI's suggestion goes as
+ *  null, which records "no override" rather than an override that happens to
+ *  agree — that is what keeps the `admin set …` note off an unchanged field.
+ *
+ *  Override is the only action here. The endpoint also flips `admin_confirmed`
+ *  (main.py:69, unconditionally), so that column records "an admin acted on
+ *  this", not "the AI was right" — nothing in the UI reads it. */
+function TriageOverride({ triage, busy, onSave }) {
+  const storedSeverity = triage.admin_override_severity || triage.suggested_severity
+  const storedUrgency = triage.admin_override_urgency || triage.suggested_urgency
+  const [severity, setSeverity] = useState(storedSeverity)
+  const [urgency, setUrgency] = useState(storedUrgency)
+
+  // A save, or a re-run, replaces the result underneath us; follow it.
+  useEffect(() => {
+    setSeverity(storedSeverity)
+    setUrgency(storedUrgency)
+  }, [storedSeverity, storedUrgency])
+
+  const changed = severity !== storedSeverity || urgency !== storedUrgency
+
+  return (
+    <div style={{ marginTop: 14, paddingTop: 13, borderTop: '1px solid var(--border-soft)' }}>
+      <div className="field-label">Admin override</div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <select
+          aria-label="Severity"
+          style={{ margin: 0, flex: '1 1 118px', fontSize: 12.5 }}
+          value={severity}
+          onChange={(e) => setSeverity(e.target.value)}
+        >
+          {SEVERITY_OPTIONS.map((value) => (
+            <option key={value} value={value}>{sev(value).label}</option>
+          ))}
+        </select>
+        <select
+          aria-label="Urgency"
+          style={{ margin: 0, flex: '1 1 118px', fontSize: 12.5 }}
+          value={urgency}
+          onChange={(e) => setUrgency(e.target.value)}
+        >
+          {URGENCY_OPTIONS.map((value) => (
+            <option key={value} value={value}>{urgencyLabel(value)}</option>
+          ))}
+        </select>
+        <button
+          className="secondary"
+          style={{ flex: '0 0 auto', fontSize: 12.5 }}
+          disabled={busy || !changed}
+          onClick={() =>
+            onSave({
+              severity: severity === triage.suggested_severity ? null : severity,
+              urgency: urgency === triage.suggested_urgency ? null : urgency,
+            })
+          }
+        >
+          Save override
+        </button>
+      </div>
+      <div className="field-hint">
+        Overrides the AI suggestion and updates the defect's severity and urgency.
+        Setting a field back to the AI's value clears that override.
+      </div>
     </div>
   )
 }
