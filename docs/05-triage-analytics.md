@@ -122,6 +122,19 @@ the list are dropped, a report claimed twice goes to the first pattern that
 claimed it, and a pattern left under `PATTERN_MIN_MEMBERS` is dropped whole. The
 same invariant as `systemic_payload`: the count *is* the evidence.
 
+**Why the cheap model is enough.** Five candidates were run over the same 60
+reports. All five returned valid JSON with no out-of-range and no
+double-claimed indices, so `verified_patterns` had nothing to catch on any of
+them — model choice here is not a reliability question. On the share of a
+pattern's members whose text matches the name the model gave it,
+`gemini-2.5-flash` led at 48/49 against `gemini-2.5-flash-lite`'s 39/47, for
+44x the cost and a 31.9s call that does not fit `AI_TIMEOUT_SECONDS`. The
+undercounting that made a stronger model look necessary is fixed in
+`verified_patterns` rather than by paying for one, so the service stays on
+`gemini-2.5-flash-lite` (3.1s, and every pattern and action recorded above came
+from it). `VLLM_TEXT_MODEL` is the only thing to change if that stops holding —
+raise `AI_TIMEOUT_SECONDS` past the new model's latency at the same time.
+
 Ranking is not one of the two. Told to weigh how much evidence backed each
 finding, the model still put three cards backed by five or six issues above a
 sign-off backlog measured over fifty-six repairs. That bias belongs to `score`
