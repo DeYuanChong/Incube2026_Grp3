@@ -46,6 +46,7 @@ MIN_REPAIRED = 3          # a repair timing needs repairs behind it
 MIN_OVERHEAD_DAYS = 1.0   # sign-off lag long enough that someone would act on it
 REJECTION_RATE = 0.5
 MIN_PROOFS = 3
+PATTERN_MIN_MEMBERS = 3   # a fault pattern needs members, as a cluster does
 
 # What a caller should show. The rules return everything and rank it; the cut is
 # the reader's decision, not the rule's, so it lives at the edge (main.overview).
@@ -149,6 +150,75 @@ def proof_quality(row: dict) -> float | None:
     )
 
 
+def _index(n, size: int) -> int | None:
+    """A report number the model returned, or None if it is not one.
+
+    `bool` is excluded explicitly: it is a subclass of `int`, so `True` would
+    otherwise resolve to report 1.
+    """
+    if isinstance(n, bool):
+        return None
+    if isinstance(n, int):
+        i = n
+    elif isinstance(n, str) and n.strip().isdigit():
+        i = int(n.strip())
+    else:
+        return None
+    return i if 1 <= i <= size else None
+
+
+def verified_patterns(raw: list[dict], report_ids: list[str]) -> list[dict]:
+    """Turn the model's proposed groupings into patterns whose members we
+    resolved ourselves.
+
+    The model proposes the grouping; the count is the length of a list built
+    here, never a number the model stated. On the real snapshot it undercounted
+    every bucket it named — leaks by half — while the groupings themselves were
+    sound, so this keeps the judgement and throws away the arithmetic.
+
+    An index outside the list is dropped, a report claimed by two patterns goes
+    to the first that claimed it, and a pattern left under `PATTERN_MIN_MEMBERS`
+    is dropped whole rather than served thin.
+    """
+    out: list[dict] = []
+    claimed: set[str] = set()
+    for pattern in raw:
+        if not isinstance(pattern, dict):
+            continue
+        name = str(pattern.get("name") or "").strip()[:80]
+        members: list[str] = []
+        for n in pattern.get("reports") or []:
+            i = _index(n, len(report_ids))
+            if i is None or report_ids[i - 1] in claimed:
+                continue
+            claimed.add(report_ids[i - 1])
+            members.append(report_ids[i - 1])
+        if not name or len(members) < PATTERN_MIN_MEMBERS:
+            continue
+        out.append({
+            "name": name,
+            "issue_ids": members,
+            "shared_root_cause": bool(pattern.get("shared_root_cause")),
+            "why": str(pattern.get("why") or "").strip()[:300],
+            "action": str(pattern.get("action") or "").strip()[:400],
+        })
+    return out
+
+
+def fault_pattern(pattern: dict) -> float | None:
+    """A cross-category pattern worth a card.
+
+    Gated on the model's own `shared_root_cause` call. A pattern it calls
+    coincidence is still true — eight toilet faults on a floor did happen — but
+    it is a category listing rather than a finding, and volume is what the other
+    rules already report. Drop the gate if an admin wants the listing too.
+    """
+    members = len(pattern.get("issue_ids") or [])
+    if not pattern.get("shared_root_cause") or members < PATTERN_MIN_MEMBERS:
+        return None
+    return members / PATTERN_MIN_MEMBERS
+
+
 if __name__ == "__main__":
     profile = {
         "group": "Block A|L3", "total": 10, "open": 2, "severity_mix": {},
@@ -222,5 +292,53 @@ if __name__ == "__main__":
     assert proof_quality({**vendor, "proofs": 2}) is None
     # an assignee with no proofs yet has no quality signal, not a perfect one
     assert proof_quality({**vendor, "proofs": 0, "proof_rejection_rate": None}) is None
+
+    # --- cross-category fault patterns -------------------------------------
+    ids = [f"i{n}" for n in range(1, 11)]
+    raw = [{"name": "Aircon not cooling", "reports": [1, 2, 3, 4],
+            "shared_root_cause": True, "why": "one AHU"}]
+    got = verified_patterns(raw, ids)
+    assert got[0]["issue_ids"] == ["i1", "i2", "i3", "i4"]
+    assert got[0]["shared_root_cause"] is True
+
+    # the count is the members we resolved, not the number the model stated
+    inflated = [{"name": "Leaks", "reports": [1, 2, 3], "shared_root_cause": True,
+                 "why": "", "count": 11}]
+    assert len(verified_patterns(inflated, ids)[0]["issue_ids"]) == 3
+
+    # indices outside the list, wrong types, and True (an int subclass) are dropped
+    junk = [{"name": "Junk", "reports": [1, 2, 99, -1, 0, None, "x", True, 3.5],
+             "shared_root_cause": True}]
+    assert verified_patterns(junk, ids) == []  # only i1 and i2 resolve — under the floor
+    # the same junk with one more real index survives, carrying only what resolved
+    assert verified_patterns(
+        [{**junk[0], "reports": [1, 2, 99, None, True, 7]}], ids
+    )[0]["issue_ids"] == ["i1", "i2", "i7"]
+    # ...digit strings are accepted, models return them
+    assert verified_patterns(
+        [{"name": "S", "reports": ["1", "2", "3"], "shared_root_cause": True}], ids
+    )[0]["issue_ids"] == ["i1", "i2", "i3"]
+
+    # a report claimed twice belongs to the first pattern that claimed it, so the
+    # member lists never overlap and the counts never sum past the reports
+    both = [{"name": "First", "reports": [1, 2, 3], "shared_root_cause": True},
+            {"name": "Second", "reports": [3, 4, 5, 6], "shared_root_cause": True}]
+    first, second = verified_patterns(both, ids)
+    assert first["issue_ids"] == ["i1", "i2", "i3"]
+    assert second["issue_ids"] == ["i4", "i5", "i6"]
+    assert not set(first["issue_ids"]) & set(second["issue_ids"])
+
+    # thin and nameless patterns are dropped whole, not served
+    assert verified_patterns([{"name": "Thin", "reports": [1, 2],
+                              "shared_root_cause": True}], ids) == []
+    assert verified_patterns([{"name": "", "reports": [1, 2, 3],
+                              "shared_root_cause": True}], ids) == []
+    assert verified_patterns([], ids) == []
+    assert verified_patterns(["not a dict"], ids) == []
+
+    # the card gate is the model's own shared-root-cause call
+    assert fault_pattern(got[0]) == 4 / 3
+    assert fault_pattern({**got[0], "shared_root_cause": False}) is None
+    assert fault_pattern({"issue_ids": ["i1", "i2"], "shared_root_cause": True}) is None
 
     print("insights: ok")

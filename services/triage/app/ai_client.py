@@ -78,3 +78,33 @@ def systemic_recommendation(cluster_key: str, count: int, window_days: int,
         issue_lines=issue_lines,
     ))
     return data.get("recommendation") if data else None
+
+
+def card_action(title: str, body: str, evidence: str, report_lines: str) -> str | None:
+    """One card's `action`, written from the reports behind it.
+
+    None on any failure, which the caller reads as "keep the template" — the
+    card is already useful without this, so a dead model must not empty it.
+    """
+    data = _chat_json(prompts.CARD_ACTION.format(
+        title=title, body=body, evidence=evidence, reports=report_lines,
+    ))
+    action = (data or {}).get("action")
+    return str(action).strip() if action else None
+
+
+def fault_patterns(where: str, count: int, minimum: int, report_lines: str) -> list[dict] | None:
+    """Recurring faults in one location's free text, as raw model output.
+
+    Returned unvalidated on purpose: the report numbers are the model's claim,
+    and `insights.verified_patterns` is what turns them into members. None means
+    the call failed — distinct from `[]`, which means it ran and found nothing
+    and is worth storing so the location is not rescanned immediately.
+    """
+    data = _chat_json(prompts.FAULT_PATTERNS.format(
+        where=where, count=count, minimum=minimum, reports=report_lines,
+    ))
+    if data is None:
+        return None
+    patterns = data.get("patterns")
+    return patterns if isinstance(patterns, list) else []

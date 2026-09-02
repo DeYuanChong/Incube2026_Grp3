@@ -5,6 +5,8 @@ Cross-schema rule: triage may READ the fixverify schema (raw SQL below) but
 never writes to it — fixverify remains its single writer.
 """
 
+import hashlib
+import json
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from statistics import median
@@ -12,9 +14,11 @@ from statistics import median
 from sqlalchemy import func, text
 from sqlmodel import Session, select
 
-from . import config, grouping
+from . import ai_client, config, grouping
 from . import insights as rules
-from .models import IssueFact, SystemicCluster
+from .models import (
+    InsightAction, IssueFact, PatternScan, SystemicCluster, now_iso,
+)
 
 GROUP_KEYS = {
     "category": lambda f: f.category,
@@ -321,6 +325,25 @@ def _insight(
     }
 
 
+# Cards whose fixed `action` the LLM measurably improves: on the real snapshot
+# it named the air-con switch behind DIC-AC-0032 and the post-lunch cooling
+# failure at Annex/06, where the template only says "look for the asset". The
+# other sources already say the one thing their threshold has to say.
+LLM_ACTION_SOURCES = ("mtbf", "profile_trend")
+
+
+def action_id(card: dict) -> str:
+    """`<card id>@<evidence hash>` — the identity of a written action.
+
+    The hash is over the card's linked issue ids, so a card whose evidence has
+    moved on misses the lookup and is written again rather than serving advice
+    about issues that have since rolled out of the window. That is the one thing
+    `SystemicCluster.recommendation` gets wrong (docs/05), and it costs a hash.
+    """
+    ids = "|".join(sorted(link["issue_id"] for link in card["linked"]))
+    return f"{card['id']}@{hashlib.sha1(ids.encode()).hexdigest()[:16]}"
+
+
 def insights(session: Session) -> list[dict]:
     """Recommendation cards assembled from the aggregates above, worst first.
 
@@ -340,7 +363,8 @@ def insights(session: Session) -> list[dict]:
     # rolled out of the window can still be named properly.
     members: dict[str, list[IssueFact]] = defaultdict(list)
     ever: dict[str, list[IssueFact]] = defaultdict(list)
-    for fact in session.exec(select(IssueFact)).all():
+    ever_facts = session.exec(select(IssueFact)).all()
+    for fact in ever_facts:
         key = grouping.cluster_key(fact.category, fact.building, fact.floor)
         ever[key].append(fact)
         if fact.created_at >= cutoff:
@@ -626,6 +650,120 @@ def insights(session: Session) -> list[dict]:
             linked=[],
         ))
 
+    # 9. Cross-category fault patterns — what the cluster key cannot express.
+    # `category|building|floor` keys on one category, so a fault showing up under
+    # several of them is invisible to it. The LLM proposes the grouping over the
+    # free text; the members were resolved and stored at scan time, and the count
+    # here is the length of that list (docs/05).
+    by_id = {f.issue_id: f for f in ever_facts}
+    for scan in session.exec(select(PatternScan)).all():
+        for n, pattern in enumerate(json.loads(scan.patterns or "[]")):
+            score = rules.fault_pattern(pattern)
+            if score is None:
+                continue
+            linked = sorted(
+                (by_id[i] for i in pattern["issue_ids"] if i in by_id),
+                key=lambda f: f.created_at,
+            )
+            # Members can be deleted between the scan and the read; a pattern
+            # that has shrunk below the floor is no longer one.
+            if len(linked) < rules.PATTERN_MIN_MEMBERS:
+                continue
+            sample = linked[0]
+            where = f"{sample.building} / {sample.floor}"
+            out.append(_insight(
+                id=f"pattern:{scan.group_key}:{n}",
+                kind="systemic",
+                source="fault_pattern",
+                score=score,
+                title=f"{pattern['name']} at {where}",
+                body=(
+                    f"{len(linked)} reports here describe the same fault across defect "
+                    f"categories that do not group them together. {pattern['why']}"
+                ).strip(),
+                action=pattern.get("action") or (
+                    "Inspect these as one fault rather than as separate tickets."
+                ),
+                window_days=window,
+                filter={"search": where, "category": None},
+                evidence=[
+                    {"label": "Reports", "value": len(linked)},
+                    {"label": "Shared cause", "value": "yes"},
+                    {"label": "Scanned", "value": scan.scanned_at[:10]},
+                ],
+                linked=linked,
+            ))
+
+    # Where an LLM action has been written for exactly this card and exactly this
+    # evidence, it replaces the template. Nothing blocks on the model: a card with
+    # no stored action serves its template and `refresh_insights` fills it in for
+    # next time — the same "null until it lands" rule `systemic_payload` follows.
+    wanted = {action_id(c): c for c in out if c["source"] in LLM_ACTION_SOURCES}
+    if wanted:
+        for row in session.exec(
+            select(InsightAction).where(InsightAction.id.in_(list(wanted)))  # type: ignore[attr-defined]
+        ).all():
+            wanted[row.id]["action"] = row.action
+
     # Worst first. Stable, so equal scores keep the order the rules ran in:
     # root causes, then places, then assets, then timings, then who did the work.
     return sorted(out, key=lambda i: i["score"], reverse=True)
+
+
+def refresh_insights(session: Session) -> dict:
+    """Fill in what the LLM owes, off a read (`main.overview` queues it).
+
+    Bounded per run in both directions: a GET must not fan out into an unbounded
+    number of model calls, so whatever is not filled this time is filled on a
+    later request and the card serves its template until then. A failed call
+    stores nothing and is retried the same way — never a half-written card.
+    """
+    written = {"actions": 0, "scans": 0}
+
+    for card in insights(session)[:rules.LIMIT]:
+        if written["actions"] >= config.INSIGHT_ACTION_LIMIT:
+            break
+        if card["source"] not in LLM_ACTION_SOURCES:
+            continue
+        key = action_id(card)
+        if session.get(InsightAction, key):
+            continue
+        action = ai_client.card_action(
+            card["title"], card["body"], json.dumps(card["evidence"]),
+            "\n".join(f"- {link['title']}" for link in card["linked"][:25]),
+        )
+        if not action:
+            continue  # left unwritten on purpose — retried on a later request
+        session.add(InsightAction(id=key, card_id=card["id"], action=action))
+        session.commit()
+        written["actions"] += 1
+
+    stale_before = _cutoff(config.PATTERN_REFRESH_DAYS)
+    groups = _grouped(session, "floor")
+    for key, facts in sorted(groups.items(), key=lambda kv: len(kv[1]), reverse=True):
+        if written["scans"] >= config.PATTERN_SCAN_LIMIT:
+            break
+        if len(facts) < config.PATTERN_MIN_REPORTS:
+            continue  # too few reports for a pattern to be more than a coincidence
+        scan = session.get(PatternScan, key)
+        if scan and scan.scanned_at >= stale_before:
+            continue
+        recent = sorted(facts, key=lambda f: f.created_at, reverse=True)
+        recent = recent[:config.PATTERN_MAX_REPORTS]
+        raw = ai_client.fault_patterns(
+            key.replace("|", " / "), len(recent), rules.PATTERN_MIN_MEMBERS,
+            "\n".join(f"{i}. {f.description[:110]}" for i, f in enumerate(recent, 1)),
+        )
+        if raw is None:
+            continue  # the call failed; leave the old scan standing
+        verified = rules.verified_patterns(raw, [f.issue_id for f in recent])
+        if scan:
+            scan.patterns = json.dumps(verified)
+            scan.scanned_at = now_iso()
+        else:
+            scan = PatternScan(group_key=key, patterns=json.dumps(verified))
+        session.add(scan)
+        session.commit()
+        written["scans"] += 1
+
+    return written

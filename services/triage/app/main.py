@@ -89,6 +89,7 @@ def confirm_result(
 
 @app.get("/")
 def overview(
+    background: BackgroundTasks,
     session: Session = Depends(get_session),
     by: str = Query("location", pattern="^(location|category|equipment)$"),
 ):
@@ -109,6 +110,11 @@ def overview(
     computed rows in if the snapshot ever grows enough for that to show.
     """
     cards = analytics.insights(session)
+    # The LLM work behind the cards happens after the response, never in it: a
+    # card with no written action serves its template and is filled for next
+    # time, which is the same "null until it lands" rule systemic_payload
+    # follows. Bounded per run in config, so a burst of reads cannot fan out.
+    background.add_task(_refresh_insights)
     return {
         "group_by": analytics.group_for(by),
         "systemic": analytics.systemic_clusters(session),
@@ -131,6 +137,17 @@ def sync_snapshot(session: Session = Depends(get_session)):
         pipeline.sync_issue_fact(session, issue)
     session.commit()
     return {"synced": len(issues)}
+
+
+def _refresh_insights() -> None:
+    """Background fill with its own DB session, as `_handle_event` has."""
+    from sqlmodel import Session as _Session
+
+    with _Session(engine) as session:
+        try:
+            analytics.refresh_insights(session)
+        except Exception:
+            log.warning("insight refresh failed", exc_info=True)
 
 
 def _handle_event(event: dict) -> None:

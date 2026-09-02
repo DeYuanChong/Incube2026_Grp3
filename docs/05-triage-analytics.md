@@ -66,6 +66,7 @@ only one thing to say.
 | `mttr` (slow) | MTTR ≥ 2× the median location's, over ≥ 3 repairs | the repair itself is slow here |
 | `mttr` (sign-off) | sign-off ≥ 1 day *and* longer than the repair, over ≥ 3 repairs | the queue, not the repair, is the delay |
 | `vendor_performance` | rejection rate ≥ 0.5 over ≥ 3 proofs | this assignee's speed numbers are not the whole story |
+| `fault_pattern` | ≥ 3 reports the model grouped as one fault and called a shared root cause | a fault the cluster key cannot see, because it spans categories |
 
 ### Silence is a feature
 
@@ -94,6 +95,56 @@ asset's name.
 
 With the guards the same snapshot produces 23 cards, of which the top 10 are
 served.
+
+### What the LLM writes, and what it is never allowed to count
+
+Two of the rules' outputs are improved by a model, and both were chosen by
+probing the real snapshot rather than by argument.
+
+**`action`, on `mtbf` and `profile_trend` cards.** The rule's template says
+*look for the asset behind this*; given the linked reports the model says
+*which* asset. On the snapshot it named the air-con switch behind
+`DIC-AC-0032` and the post-lunch cooling failure at Annex/06, both of which are
+in the reports and neither of which a threshold can reach. Other sources keep
+their template — a threshold has only one thing to say.
+
+**`fault_pattern` cards.** `category|building|floor` keys on a single category,
+so a fault appearing under several of them is not expressible as a cluster. The
+model groups a location's free text instead, and on one floor it found six
+recurring faults — aircon, water dispensers, leaks, toilets, lighting, pests —
+in reports that were all filed as `others`.
+
+**It proposes the grouping; it never states the count.** Asked how many reports
+were in each pattern it undercounted every one, leaks by half. So the prompt
+asks for *report numbers*, `insights.verified_patterns` resolves those to issue
+ids, and a pattern's count is the length of the list we built. Indices outside
+the list are dropped, a report claimed twice goes to the first pattern that
+claimed it, and a pattern left under `PATTERN_MIN_MEMBERS` is dropped whole. The
+same invariant as `systemic_payload`: the count *is* the evidence.
+
+Ranking is not one of the two. Told to weigh how much evidence backed each
+finding, the model still put three cards backed by five or six issues above a
+sign-off backlog measured over fifty-six repairs. That bias belongs to `score`
+and is fixed by weighting it, not by asking a model.
+
+### Nothing blocks on the model
+
+`GET /api/triage` makes no model calls. Cards are read from stored rows and
+served with their template `action` until a written one exists; the fill runs as
+a background task after the response, bounded by `INSIGHT_ACTION_LIMIT` and
+`PATTERN_SCAN_LIMIT` so a burst of reads cannot fan out into a burst of calls. A
+failed call stores nothing and is retried on a later request — the same rule
+that leaves a cluster's recommendation null until it lands, and never a
+half-written card.
+
+An action is stored under `<card id>@<hash of its linked issue ids>`, so a card
+whose evidence has moved on misses the lookup and is rewritten rather than
+serving advice about issues that rolled out of the window. That is the one thing
+a cluster's write-once recommendation gets wrong, and here it costs a hash.
+
+`PatternScan` holds one row per location, rewritten after
+`PATTERN_REFRESH_DAYS` — including a row with no patterns, so *scanned and found
+nothing* is a stored answer rather than a reason to scan again on every request.
 
 ### Rules, not an LLM, and deliberately
 
