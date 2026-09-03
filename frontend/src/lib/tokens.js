@@ -156,3 +156,28 @@ export const initials = (name) =>
     .slice(0, 2)
     .map((part) => part[0].toUpperCase())
     .join('')
+
+/** Icon, colour and wording for one proof, shared by the Fix & Verify board and
+ *  the issue-detail card so the proof vocabulary can't drift between them. The
+ *  human verdict wins where it exists — an admin's decision supersedes the
+ *  model's. */
+export function proofState(proof) {
+  if (proof.human_verdict === 'approved') {
+    return { icon: '✓', label: 'Approved', c: 'var(--ok)', bg: 'var(--ok-soft)' }
+  }
+  if (proof.human_verdict === 'rejected') {
+    return { icon: '✕', label: 'Rejected', c: 'var(--danger)', bg: 'var(--danger-soft)' }
+  }
+  if (proof.ai_verdict === 'irrelevant') {
+    // Submitted despite the AI: it's in the human queue, so read it as awaiting
+    // sign-off (with the override called out) rather than a dead-end rejection.
+    if (proof.ai_overridden) {
+      return { icon: '◎', label: 'Overridden — awaiting sign-off', c: 'var(--accent)', bg: 'var(--accent-soft)' }
+    }
+    return { icon: '✕', label: 'AI: irrelevant', c: 'var(--danger)', bg: 'var(--danger-soft)' }
+  }
+  if (proof.ai_verdict === 'relevant') {
+    return { icon: '◎', label: 'Awaiting sign-off', c: 'var(--accent)', bg: 'var(--accent-soft)' }
+  }
+  return { icon: '◎', label: 'Inconclusive', c: '#b07a0c', bg: '#fdf6e3' }
+}

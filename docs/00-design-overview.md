@@ -12,7 +12,7 @@ gives facilities managers macro-level insight, not just a ticket queue.
 |---|---|---|
 | 1. User Reporting | Reporter | Submit category, location (building/floor/room — room optional), description. AI suggests a (re-)categorization; reporter's choice is never silently overridden. Reporter tracks live status on a dashboard. |
 | 2. Triage | System + Admin | AI + heuristics suggest severity and urgency class. Cross-referencing across all issues flags systemic faults (repeat issues on same floor, same equipment, same issue profile) and surfaces them to the admin once with a maintenance recommendation, on the AI insights screen (the admin decides whether to raise it as its own issue; nothing is pushed — see [05 — Triage & Analytics](05-triage-analytics.md) §Systemic escalation), detects duplicates (same defect reported by different users → escalate severity/urgency), and computes MTBF / MTTR metrics. Admin confirms or overrides. |
-| 3. Fix & Verify | Maintenance + Admin | A work order is created. The system recommends what proof of work to upload (e.g., before/after thermostat photos for aircon temperature) — a recommendation, never a hard requirement that overrides what the user uploads. Uploaded proof is AI-checked for relevance to the issue description; irrelevant proof is rejected with a stated reason and must be re-uploaded. Issues that cannot be verified visually (e.g., "bad smell at Level 2") are routed to human verification. When proof passes the relevance check, a human (admin) is notified to do final verification. |
+| 3. Fix & Verify | Maintenance + Admin | A work order is created. The system recommends what proof of work to upload (e.g., before/after thermostat photos for aircon temperature) — a recommendation, never a hard requirement that overrides what the user uploads. Proof upload requires the work order to be started. Uploaded proof is stored as a draft and AI-checked for relevance to the issue description; the uploader then confirms or cancels. Proof the AI judges irrelevant can be cancelled or overridden into sign-off (flagged "AI overridden"). Issues that cannot be verified visually (e.g., "bad smell at Level 2") are routed to human verification. On confirm, a human (admin) is notified to do final verification. |
 | 4. Close Loop | Reporter + Admin | After admin verification the reporter is notified and asked to confirm resolution ("user closed defect"). Auto-close after a grace period if the reporter does not respond. Closure feeds MTTR/MTBF metrics back into triage analytics. |
 
 ## Key design decisions (agreed with stakeholder)
@@ -34,9 +34,7 @@ stateDiagram-v2
     [*] --> reported: reporter submits
     reported --> triaged: triage completes (auto + admin confirm)
     triaged --> in_progress: work order started
-    triaged --> pending_verification: resolved on arrival (already cleaned up / self-serviced) — proof uploaded, work never starts
-    in_progress --> pending_verification: proof uploaded & passed AI relevance check
-    in_progress --> in_progress: proof rejected (reason given) → re-upload
+    in_progress --> pending_verification: draft proof confirmed (passed AI check, or AI-irrelevant overridden)
     pending_verification --> verified: admin verifies (human in the loop)
     pending_verification --> in_progress: admin rejects → back to work
     verified --> closed: reporter confirms OR auto-close after grace period
@@ -58,9 +56,8 @@ never hold their own copy of an issue's status as the source of truth.
 | `reported → triaged` | **Triage** | Auto-pipeline on the `issue.created` event (admin confirm/override optional) → `POST /issues/{id}/triage-result` on reporting. |
 | `[*] → reported` (systemic escalation) | **Triage → Admin → Reporting** | Triage notifies the admin once when a cluster crosses the systemic threshold; the admin decides whether to file an issue, and does so through the ordinary reporter flow under their own name. Triage creates nothing. The triggering ticket is unaffected. See [05](05-triage-analytics.md). |
 | `triaged → in_progress` | **Fix & Verify** | Work order created on `issue.triaged` event — unless the issue is a duplicate whose group primary is already being worked, in which case it rides that work order and stays at `triaged` (see [05](05-triage-analytics.md)). Then `POST /work-orders/{id}/start` → reporting status API. |
-| `triaged → pending_verification` (resolved on arrival) | **Fix & Verify** | Maintenance arrives and finds the defect already resolved (e.g. a spill someone else cleaned up, or the reporter self-serviced): a proof is uploaded on the still-`open` work order — the AI relevance check and human verification still apply, but `in_progress` is skipped. Work order is marked `resolved_on_arrival`; closure typically uses `resolution_type: self_resolved`. |
-| `in_progress → pending_verification` | **Fix & Verify** | Proof upload passes the AI relevance check → reporting status API. |
-| proof rejected (stays `in_progress`) | **Fix & Verify** | Vision model verdict `irrelevant` → HTTP 422 to the uploader with the reason; emits `proof.rejected`. No status change. |
+| `in_progress → pending_verification` | **Fix & Verify** | A proof upload stores a draft and runs the AI check; the uploader **confirms** it (`POST /proofs/{id}/submit`, or overrides an AI-`irrelevant` verdict) → reporting status API. |
+| AI judged proof irrelevant (stays `in_progress`) | **Fix & Verify** | The upload is a draft, not a status change: the AI verdict is shown and the uploader either **cancels** it (`DELETE /proofs/{id}`, nothing stored) or **overrides** it into sign-off (flagged `ai_overridden`). No `proof.rejected` here — that event now fires only on an admin rejection at `human-verify`. |
 | `pending_verification → verified` / `→ in_progress` | **Fix & Verify** | Admin's `POST /proofs/{id}/human-verify` (approve/reject) → reporting status API. |
 | `verified → closed` | **Reporting** | `POST /issues/{id}/close` — by the reporter (confirm), an admin, or auto-close after the grace period. |
 | `verified → in_progress` (dispute) | **Reporting** | Reporter disputes via the status API; fixverify picks the work order back up. |

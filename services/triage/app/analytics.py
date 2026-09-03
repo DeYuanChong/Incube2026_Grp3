@@ -136,8 +136,12 @@ def vendor_performance(session: Session) -> list[dict]:
     """Per-assignee performance from fixverify's tables (read-only).
 
     Speed: mean repair hours (work order started → completed).
-    Quality: proof rejection rate (AI 'irrelevant' or human 'rejected'),
-    and resolved-on-arrival counts (no work was actually needed).
+    Quality: proof rejection rate — a human 'rejected' verdict, or an AI
+    'irrelevant' one that was not overridden. Only *submitted* proofs count;
+    a draft awaiting the uploader's confirm/cancel is not a rejection, and a
+    proof the AI flagged that the uploader overrode into sign-off is judged by
+    the human, not counted as rejected up front. `resolved_on_arrival` is legacy
+    (no longer set) and reflects historical rows only.
     """
     try:
         rows = session.exec(text("""
@@ -152,10 +156,11 @@ def vendor_performance(session: Session) -> list[dict]:
                                              - wo.started_at::timestamptz)) / 3600.0
                 END)                                               AS avg_repair_hours,
                 COUNT(p.id)                                        AS proofs,
-                SUM(CASE WHEN p.ai_verdict = 'irrelevant'
-                          OR p.human_verdict = 'rejected' THEN 1 ELSE 0 END) AS proofs_rejected
+                SUM(CASE WHEN p.human_verdict = 'rejected'
+                          OR (p.ai_verdict = 'irrelevant' AND NOT p.ai_overridden)
+                         THEN 1 ELSE 0 END)                        AS proofs_rejected
             FROM fixverify.work_orders wo
-            LEFT JOIN fixverify.proofs p ON p.work_order_id = wo.id
+            LEFT JOIN fixverify.proofs p ON p.work_order_id = wo.id AND p.submitted
             WHERE wo.assignee IS NOT NULL
             GROUP BY wo.assignee
         """)).all()

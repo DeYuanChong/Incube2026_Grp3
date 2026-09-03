@@ -46,6 +46,11 @@ class Proof(SQLModel, table=True):
     ai_verdict: str | None = None  # relevant | irrelevant | inconclusive
     ai_reason: str | None = None  # shown to uploader on rejection
     ai_confidence: float | None = None
+    # An uploaded proof is a draft until the uploader confirms it: the AI check
+    # runs on upload, the uploader sees the verdict, then submits or cancels.
+    # Only a submitted proof enters the human-verification queue.
+    submitted: bool = False
+    ai_overridden: bool = False  # uploader submitted despite an AI "irrelevant" verdict
     human_verdict: str | None = None  # approved | rejected
     human_verifier: str | None = None
     human_notes: str | None = None

@@ -455,11 +455,15 @@ Also exposed per group:
 ### Quality signals (vendor performance beyond speed)
 Served in the `vendor_performance` block, which reads the `fixverify` schema
 directly — the sanctioned read-only cross-schema access in the shared PostgreSQL DB:
-- **Proof rejection rate**: rejected proofs / total proofs per assignee — AI
-  relevance rejections plus human rejections.
+- **Proof rejection rate**: rejected proofs / submitted proofs per assignee —
+  human rejections, plus any AI `irrelevant` verdict that was *not* overridden.
+  Only submitted proofs count: a draft awaiting the uploader's confirm/cancel is
+  not a rejection, and a proof the uploader overrode into sign-off is judged by
+  the human rather than counted as rejected up front.
 - **Avg repair hours**: work order `started_at → completed_at` per assignee.
-- **Resolved-on-arrival count**: dispatches where no work was needed (a signal
-  for reporter education / self-service opportunities).
+- **Resolved-on-arrival count**: dispatches where no work was needed. **Legacy** —
+  no longer produced now that a proof requires a started work order (doc 04 §5);
+  reflects historical rows only.
 - **Reopen rate**: issues that went `verified → in_progress` (reporter dispute).
 
 ## Duplicate handling & the dispatch gate
